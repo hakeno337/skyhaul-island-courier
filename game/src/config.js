@@ -54,6 +54,18 @@ export const SCORE = {
   perSecondLeft: 6,
   perFuelLeft: 9,
   perHullLeft: 4,
+  medevacBase: 900,
+  medevacPerFrontSecond: 4,  // paid per second the front is still away at touchdown
+  medevacPerComfort: 12,     // paid per point of patient comfort remaining
+  medevacLatePerSecond: 8,   // bled per second flown after the front closes in
+};
+
+// The campaign layer: one pilot, one aircraft, a living from the island's
+// parcels. Fees are paid per completed sortie; stars are best-of per sortie.
+export const CAMPAIGN = {
+  pilot: 'Rani Prasetyo',
+  aircraft: 'KAKATUA',
+  reg: 'SK-417',
 };
 
 // Golden-hour tropical palette; sky, sea and land all live in this family.
@@ -70,6 +82,8 @@ export const PALETTE = {
   grassB: '#4f9a3e',
   fieldA: '#c9b96a',
   fieldB: '#b3a355',
+  fieldC: '#aebd5f',
+  meadow: '#79b657',
   forest: '#2e7a3c',
   forestB: '#3c8a46',
   rock: '#8d8175',

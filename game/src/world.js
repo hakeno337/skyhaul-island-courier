@@ -151,7 +151,7 @@ export function groundHeightAt(x, z) {
 // woods noise runs, rock and snow up high. h is groundHeightAt(x, z).
 export function surfaceColor(x, z, h) {
   const f = islandField(x, z);
-  const j = 0.93 + hash2(Math.round(x / 7), Math.round(z / 7)) * 0.12;
+  const j = 0.90 + hash2(Math.round(x / 7), Math.round(z / 7)) * 0.18;
   if (f >= 1) return vary(h < -13 ? PALETTE.seaDeep : PALETTE.sea, j * 0.9);
   if (h > 200) return vary(PALETTE.snow, j);
   if (h > 55) return vary(PALETTE.rock, j);
@@ -164,6 +164,13 @@ export function surfaceColor(x, z, h) {
   // clearings wherever the slow patch noise dips.
   const patch = noise2(x * 0.0013 + 21, z * 0.0013 - 13);
   if ((z > 260 && n < -0.05) || patch < -0.52) return vary(hash2(x + 40, z) > 0.5 ? PALETTE.fieldA : PALETTE.fieldB, j);
+  // Coarse farm cells over the remaining grassland: whole plots of ripe
+  // field, pale olive or bright meadow, so the lowland reads as worked
+  // land from altitude instead of one flat green.
+  const cell = hash2(Math.floor(x / 120) + 31, Math.floor(z / 120) - 17);
+  if (cell > 0.8) return vary(hash2(x + 40, z) > 0.5 ? PALETTE.fieldA : PALETTE.fieldB, j);
+  if (cell > 0.6) return vary(PALETTE.fieldC, j);
+  if (cell < 0.16) return vary(PALETTE.meadow, j);
   return vary(patch > 0.12 ? PALETTE.grassA : PALETTE.grassB, j);
 }
 
@@ -188,7 +195,7 @@ export function buildWorld() {
   // Forest trees wherever the woods noise runs or the grass is open.
   let planted = 0;
   let guard = 0;
-  while (planted < 300 && guard++ < 20000) {
+  while (planted < 330 && guard++ < 20000) {
     const x = (rng() - 0.5) * 2 * WORLD.islandRx * 0.98;
     const z = WORLD.islandCz + (rng() - 0.5) * 2 * WORLD.islandRz * 0.98;
     if (islandField(x, z) > 0.97 || groundHeightAt(x, z) > 34) continue;
@@ -260,7 +267,7 @@ export function buildWorld() {
   });
 
   // Broadleaf: groves where the forest noise runs, plus a ring at the village.
-  scatter(210, 3200, () => {
+  scatter(255, 3800, () => {
     const nearVillage = veg() < 0.34;
     const a = veg() * Math.PI * 2;
     const d = nearVillage ? 80 + veg() * 360 : 0;
@@ -271,6 +278,20 @@ export function buildWorld() {
     const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
     if (!nearVillage && n < 0.05 && veg() > 0.3) return false;
     features.push({ kind: 'tree', x, z, h: 12 + veg() * 7.5, r: 4.4, seed: veg() });
+    return true;
+  });
+
+  // Conifers: dark pines on the higher, cooler ground, mixed through the
+  // broadleaf so the woods read two-toned from the air.
+  scatter(130, 1800, () => {
+    const x = (veg() - 0.5) * 2 * WORLD.islandRx * 0.97;
+    const z = WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 0.97;
+    const gh = groundHeightAt(x, z);
+    if (islandField(x, z) > 0.95 || gh < 10 || gh > 58) return false;
+    if (!vegClear(x, z, 26)) return false;
+    const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
+    if (n < 0.0 && veg() > 0.45) return false;
+    features.push({ kind: 'conifer', x, z, h: 13 + veg() * 8, r: 3.4, seed: veg() });
     return true;
   });
 
@@ -298,7 +319,7 @@ export function buildWorld() {
   const onRoad = (x, z) => Math.abs((z - 700) - (x + 260) * (-1220 / 1090)) < 58 && x > -310 && x < 870;
   for (let i = features.length - 1; i >= 0; i--) {
     const f = features[i];
-    if ((f.kind === 'tree' || f.kind === 'palm' || f.kind === 'bush' || f.kind === 'rocklet') && onRoad(f.x, f.z)) features.splice(i, 1);
+    if ((f.kind === 'tree' || f.kind === 'conifer' || f.kind === 'palm' || f.kind === 'bush' || f.kind === 'rocklet') && onRoad(f.x, f.z)) features.splice(i, 1);
   }
 
   return { features, clouds, runways: RUNWAYS };

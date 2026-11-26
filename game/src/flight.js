@@ -19,6 +19,17 @@ export function createPlane() {
   };
 }
 
+// The load factor the airframe (and any passenger) actually feels: bank is
+// the big term — a coordinated turn at bank θ pulls 1/cos θ — with a
+// pitch-pull contribution when the nose is high and she's climbing hard.
+// On the ground, or flying straight and level, it reads 1.0.
+export function loadFactor(plane) {
+  if (plane.onGround) return 1;
+  const bank = 1 / Math.cos(clamp(plane.roll, -1.05, 1.05));
+  const pull = 1 + Math.max(0, Math.sin(plane.pitch)) * 0.45;
+  return bank * pull;
+}
+
 // A clean reset on a runway threshold, used at every mission start:
 // half a length behind the centre, facing along the runway heading.
 export function resetPlane(plane, rwy) {
@@ -120,7 +131,7 @@ export function stepPlane(plane, controls, world, dt) {
         plane.hull -= 12; plane.speed = 0; plane.y = hit.h;
         ev.clipped = hit.kind;
       } else {
-        const what = { tree: 'trees', palm: 'palms', bush: 'bushes', rocklet: 'rocks' }[hit.kind] || hit.kind;
+        const what = { tree: 'trees', conifer: 'pines', palm: 'palms', bush: 'bushes', rocklet: 'rocks' }[hit.kind] || hit.kind;
         ev.crashed = `You flew into the ${what}.`;
         return ev;
       }

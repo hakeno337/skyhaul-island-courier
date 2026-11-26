@@ -2,7 +2,7 @@
 // canvas above the WebGL view. A compass tape up top, altitude and speed
 // blocks in the corners, a mission card, and a bottom dashboard of real
 // gauges: airspeed, altimeter, attitude ball, fuel, hull — plus the radar.
-import { PALETTE, DEG, WORLD, clamp } from './config.js';
+import { PALETTE, DEG, WORLD, PHYS, CAMPAIGN, clamp } from './config.js';
 import { RUNWAYS, PLACES, coastlinePoints } from './world.js';
 import { formatClock } from './missions.js';
 
@@ -299,6 +299,97 @@ function drawRadar(ctx, state, world, cx, cy, r) {
   label(ctx, 'RADAR', cx, cy + r + 13, 9.5, 'rgba(200, 225, 245, 0.8)', 'center');
 }
 
+// The pressures panel: the numbers a working pilot watches that the dials
+// don't show — what she's carrying, how long the fuel lasts, what the wind
+// is doing across the nose, and what the airframe (and any passenger) is
+// feeling in G. Live from the flight model and the mission manifest.
+function drawPressures(ctx, state, w, y) {
+  const p = state.plane;
+  const m = state.mission;
+  if (!m) return;
+  const medevac = m.def.id === 'medevac';
+  const hgt = medevac ? 158 : 130;
+  const x = w - 300;
+  panel(ctx, x, y, 284, hgt);
+  label(ctx, 'PRESSURES', x + 12, y + 21, 11, PALETTE.hudAmber);
+  value(ctx, CAMPAIGN.reg, w - 28, y + 21, 11, 'rgba(200, 228, 248, 0.9)', 'right');
+
+  const dim = 'rgba(190, 220, 245, 0.8)';
+  // Row 1: cargo load and fuel remaining (plain units, as the bar gauge reads).
+  label(ctx, 'LOAD', x + 12, y + 45, 10, dim);
+  value(ctx, `${m.def.load} KG`, x + 56, y + 45, 13, PALETTE.hudText);
+  label(ctx, 'FUEL', x + 152, y + 45, 10, dim);
+  value(ctx, `${Math.round(p.fuel)}`, x + 190, y + 45, 13, PALETTE.hudText);
+  // Row 2: endurance at the current burn, and airframe damage.
+  const burn = PHYS.idleDrain + p.throttle * (PHYS.fullDrain - PHYS.idleDrain);
+  const endur = p.fuel > 0 ? (p.fuel / burn / 60).toFixed(1) : '0.0';
+  label(ctx, 'ENDUR', x + 12, y + 67, 10, dim);
+  value(ctx, `${endur} MIN`, x + 56, y + 67, 13, PALETTE.hudText);
+  const dmg = Math.round(100 - p.hull);
+  label(ctx, 'DAMAGE', x + 152, y + 67, 10, dim);
+  value(ctx, `${dmg} %`, x + 206, y + 67, 13, dmg > 50 ? PALETTE.hudRed : dmg > 25 ? PALETTE.hudAmber : PALETTE.hudText);
+  // Row 3: the crosswind across the nose, from the mission's own wind.
+  let xw = '0 KT';
+  if (m.def.wind) {
+    const cross = m.def.wind.x * Math.cos(p.heading) + m.def.wind.z * Math.sin(p.heading);
+    const kt = Math.round(Math.abs(cross) * 1.944);
+    if (kt > 0) xw = `${kt} KT ${cross > 0 ? 'L' : 'R'}`;
+  }
+  label(ctx, 'X-WIND', x + 12, y + 89, 10, dim);
+  value(ctx, xw, x + 66, y + 89, 13, PALETTE.hudText);
+  // Row 4: the G meter — current load factor, peak this flight, and the
+  // patient's limit ticked on the bar when the medevac is aboard.
+  const g = state.gNow ?? 1;
+  const gPeak = state.gPeak ?? 1;
+  label(ctx, 'G LOAD', x + 12, y + 111, 10, dim);
+  const bx = x + 66;
+  const bw = 118;
+  ctx.fillStyle = '#101c26';
+  ctx.strokeStyle = 'rgba(170, 220, 255, 0.4)';
+  ctx.beginPath();
+  ctx.roundRect(bx, y + 101, bw, 10, 3);
+  ctx.fill();
+  ctx.stroke();
+  const gCol = medevac && g > m.def.gLimit ? PALETTE.hudRed : g > (medevac ? 1.25 : 1.7) ? PALETTE.hudAmber : PALETTE.hudGreen;
+  ctx.fillStyle = gCol;
+  if (g > 0.02) {
+    ctx.beginPath();
+    ctx.roundRect(bx + 1, y + 102.5, (bw - 2) * clamp(g / 2.5, 0, 1), 7, 2.5);
+    ctx.fill();
+  }
+  if (medevac) {
+    const lx = bx + (m.def.gLimit / 2.5) * bw;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(lx, y + 98);
+    ctx.lineTo(lx, y + 114);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+  value(ctx, `${g.toFixed(2)} · PK ${gPeak.toFixed(2)}`, w - 28, y + 111, 11.5, gCol, 'right');
+  // Medevac only: the patient's comfort, the meter the whole sortie rides on.
+  if (medevac) {
+    const comfort = Math.max(0, Math.round(m.comfort ?? 100));
+    label(ctx, 'PATIENT', x + 12, y + 137, 10, dim);
+    ctx.fillStyle = '#101c26';
+    ctx.strokeStyle = 'rgba(170, 220, 255, 0.4)';
+    ctx.beginPath();
+    ctx.roundRect(bx, y + 127, bw, 10, 3);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = comfort > 50 ? PALETTE.hudGreen : comfort > 25 ? PALETTE.hudAmber : PALETTE.hudRed;
+    if (comfort > 0) {
+      ctx.beginPath();
+      ctx.roundRect(bx + 1, y + 128.5, (bw - 2) * (comfort / 100), 7, 2.5);
+      ctx.fill();
+    }
+    value(ctx, `${comfort} %`, w - 28, y + 137, 11.5, PALETTE.hudText, 'right');
+    label(ctx, 'FRONT', x + 12, y + 152, 9, dim);
+    label(ctx, m.frontArrived ? 'CLOSED IN' : `ETA ${formatClock(m.frontT)}`, x + 66, y + 152, 9.5, m.frontArrived || m.frontT < 60 ? PALETTE.hudRed : 'rgba(200, 228, 248, 0.9)');
+  }
+}
+
 export function drawHud(ctx, state, world, w, h) {
   const p = state.plane;
   const m = state.mission;
@@ -325,10 +416,12 @@ export function drawHud(ctx, state, world, w, h) {
   // Mission card, right side under the speed block.
   if (m) {
     const left = Math.max(0, m.def.timeLimit - m.t);
-    panel(ctx, w - 300, 100, 284, 96);
+    const medevac = m.def.id === 'medevac';
+    const cardH = medevac ? 148 : 96;
+    panel(ctx, w - 300, 100, 284, cardH);
     label(ctx, m.def.name.toUpperCase(), w - 288, 122, 12, PALETTE.hudAmber);
     label(ctx, m.objectiveText, w - 288, 142, 13.5, PALETTE.hudText);
-    const progress = m.def.id === 'rings' ? `${m.ringIndex}/${m.def.rings.length} rings` : m.def.id === 'patrol' ? `${m.checkpointIndex}/3 marks` : m.def.id === 'rescue' ? (m.buoy ? 'buoy away' : m.dropped ? 'splashdown' : 'buoy aboard') : 'one crate, one strip';
+    const progress = m.def.id === 'rings' ? `${m.ringIndex}/${m.def.rings.length} rings` : m.def.id === 'patrol' ? `${m.checkpointIndex}/3 marks` : m.def.id === 'rescue' ? (m.buoy ? 'buoy away' : m.dropped ? 'splashdown' : 'buoy aboard') : m.def.id === 'medevac' ? (m.frontArrived ? 'front closed in' : 'patient aboard') : 'one crate, one strip';
     label(ctx, progress, w - 288, 160, 11.5, 'rgba(200, 228, 248, 0.9)');
     value(ctx, formatClock(left), w - 28, 160, 13, left < 30 ? PALETTE.hudRed : PALETTE.hudText, 'right');
     if (m.target) {
@@ -346,6 +439,29 @@ export function drawHud(ctx, state, world, w, h) {
     }
     value(ctx, `${m.score}`, w - 28, 122, 13, PALETTE.hudText, 'right');
     ctx.textAlign = 'left';
+    if (medevac) {
+      // The rule she flies by, her peak G against it, and the front's ETA.
+      label(ctx, `RULE · MAX ${m.def.gLimit.toFixed(1)} G — PATIENT ABOARD`, w - 288, 198, 10, PALETTE.hudAmber);
+      value(ctx, `PEAK ${(state.gPeak ?? 1).toFixed(2)} G`, w - 28, 198, 10.5, (state.gPeak ?? 1) > m.def.gLimit ? PALETTE.hudRed : 'rgba(200, 228, 248, 0.9)', 'right');
+      const comfort = Math.max(0, Math.round(m.comfort ?? 100));
+      label(ctx, 'PATIENT', w - 288, 222, 9.5, 'rgba(190, 220, 245, 0.8)');
+      ctx.fillStyle = '#101c26';
+      ctx.strokeStyle = 'rgba(170, 220, 255, 0.4)';
+      ctx.beginPath();
+      ctx.roundRect(w - 226, 212, 128, 10, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = comfort > 50 ? PALETTE.hudGreen : comfort > 25 ? PALETTE.hudAmber : PALETTE.hudRed;
+      if (comfort > 0) {
+        ctx.beginPath();
+        ctx.roundRect(w - 225, 213.5, 126 * (comfort / 100), 7, 2.5);
+        ctx.fill();
+      }
+      value(ctx, `${comfort}%`, w - 84, 222, 12, PALETTE.hudText);
+      label(ctx, 'FRONT ETA', w - 288, 240, 9.5, 'rgba(190, 220, 245, 0.8)');
+      value(ctx, m.frontArrived ? 'CLOSED IN' : formatClock(m.frontT), w - 190, 240, 13, m.frontArrived || m.frontT < 60 ? PALETTE.hudRed : PALETTE.hudText);
+    }
+    drawPressures(ctx, state, w, 100 + cardH + 8);
   }
 
   // Centre warnings.
@@ -414,8 +530,13 @@ export function drawHud(ctx, state, world, w, h) {
   if (m) value(ctx, formatClock(Math.max(0, m.def.timeLimit - m.t)), w - 268, cy - 6, 24, PALETTE.hudText);
   label(ctx, 'SORTIE SCORE', w - 268, cy + 22, 10.5, 'rgba(190, 220, 245, 0.85)');
   if (m) value(ctx, `${m.score}`, w - 268, cy + 46, 24, PALETTE.hudAmber);
-  label(ctx, `CAMPAIGN ${state.campaignScore}`, w - 118, cy + 46, 12, 'rgba(200, 228, 248, 0.9)');
-  if (m && m.def.wind) label(ctx, 'WIND: SE GUSTING', w - 118, cy - 6, 12, PALETTE.hudAmber);
+  const campStars = state.campaign ? Object.values(state.campaign.bestStars).reduce((s, v) => s + v, 0) : 0;
+  label(ctx, `CASH $${state.campaign ? state.campaign.cash : 0} · ★ ${campStars}/15`, w - 118, cy + 46, 12, PALETTE.hudAmber);
+  if (m && m.def.wind) {
+    const pts = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const deg = ((Math.atan2(m.def.wind.x, -m.def.wind.z) / DEG) % 360 + 360) % 360;
+    label(ctx, `WIND: ${pts[Math.round(deg / 45) % 8]} GUSTING`, w - 118, cy - 6, 12, PALETTE.hudAmber);
+  }
 
   label(ctx, 'W/S pitch · A/D bank · SHIFT/Q throttle · F drop · mouse steers · M mute', 16, h - 8, 10.5, 'rgba(170, 200, 225, 0.55)');
 }

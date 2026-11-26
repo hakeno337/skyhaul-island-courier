@@ -7,7 +7,7 @@
 import { VIEW } from './config.js';
 import { buildWorld, RUNWAYS } from './world.js';
 import { createInput, readControls } from './input.js';
-import { createPlane, resetPlane, stepPlane } from './flight.js';
+import { createPlane, resetPlane, stepPlane, loadFactor } from './flight.js';
 import { MISSIONS, startMission, stepMission } from './missions.js';
 import { createScene3D } from './scene.js';
 import { drawHud } from './hud.js';
@@ -33,6 +33,9 @@ const state = {
   result: null,
   banner: null,
   campaignScore: 0,
+  campaign: { cash: 0, bestStars: {} },
+  gNow: 1,
+  gPeak: 1,
   cues: [],
 };
 resetPlane(state.plane, RUNWAYS[0]);
@@ -54,6 +57,9 @@ function endSortieCrash(reason, ditched) {
     note: reason,
     lines: [[m && m.def.id === 'rings' ? 'Rings banked' : 'Objectives banked', banked]],
     total: banked,
+    fee: 0,
+    stars: 0,
+    breakdown: null,
   };
   state.screen = 'crashed';
   sfx.thud();
@@ -74,7 +80,7 @@ function step(dt) {
   state.time += dt;
   const controls = readControls(input);
   const coast = { pitch: 0, roll: 0, throttleUp: false, throttleDown: true, wheelTrim: state.plane.lastWheel };
-  if (controls.confirm || controls.mission1 || controls.mission2 || controls.mission3 || controls.mission4) unlockAudio();
+  if (controls.confirm || controls.mission1 || controls.mission2 || controls.mission3 || controls.mission4 || controls.mission5) unlockAudio();
 
   if (state.screen === 'title') {
     let pick = -1;
@@ -82,6 +88,7 @@ function step(dt) {
     if (controls.mission2) pick = 1;
     if (controls.mission3) pick = 2;
     if (controls.mission4) pick = 3;
+    if (controls.mission5) pick = 4;
     if (pick < 0 && input.clicked) {
       pick = titleMissionAt(input.mouseX * VIEW.width, input.mouseY * VIEW.height);
       if (pick >= 0) sfx.click();
@@ -89,6 +96,8 @@ function step(dt) {
     if (pick >= 0) startMission(state, pick);
   } else if (state.screen === 'fly') {
     const ev = stepPlane(state.plane, controls, world, dt);
+    state.gNow = loadFactor(state.plane);
+    if (state.gNow > state.gPeak) state.gPeak = state.gNow;
     if (controls.drop) ev.drop = true;
     if (ev.clipped) {
       state.banner = { text: `Clipped a ${ev.clipped}!`, sub: 'The airframe felt that one', until: state.time + 1.6 };

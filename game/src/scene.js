@@ -4,7 +4,7 @@
 // this module only reads their state and draws it in three dimensions.
 
 import { VIEW, WORLD, PALETTE, clamp, lerp } from './config.js';
-import { groundHeightAt, surfaceColor, islandField, RUNWAYS, PLACES, runwayElev } from './world.js';
+import { groundHeightAt, surfaceColor, islandField, RUNWAYS, PLACES, runwayElev, makeRng } from './world.js';
 import { MISSIONS } from './missions.js';
 
 const THREE = window.THREE;
@@ -46,6 +46,7 @@ export function createScene3D(canvas, world) {
   buildVillage(scene, world);
   buildLandmarks(scene, world);
   const clouds = buildClouds(scene, world);
+  const front = buildFrontWall(scene);
   const plane = buildPlane(scene);
   const rings = buildRings(scene);
   const beacon = buildBeacon(scene);
@@ -56,6 +57,7 @@ export function createScene3D(canvas, world) {
   const cam = { init: false };
 
   function render(state, dt, snap) {
+    syncFront(front, scene, state);
     syncPlane(plane, state.plane);
     syncRings(rings, state);
     syncBeacon(beacon, state);
@@ -277,6 +279,27 @@ function buildVegetation(scene, world) {
   });
   scene.add(trunks, canopies);
 
+  // Conifers: dark pines — a short trunk and two stacked cones, so the
+  // high woods silhouette differently from the broadleaf canopy balls.
+  const conifers = world.features.filter((f) => f.kind === 'conifer');
+  const coneGeo = new THREE.ConeGeometry(1, 1, 7);
+  coneGeo.translate(0, 0.5, 0);
+  const conTrunks = new THREE.InstancedMesh(trunkGeo, trunkMat, conifers.length);
+  const conLow = new THREE.InstancedMesh(coneGeo, leafMat, conifers.length);
+  const conHigh = new THREE.InstancedMesh(coneGeo, leafMat, conifers.length);
+  const pineA = new THREE.Color(0x1d4a26);
+  const pineB = new THREE.Color(0x265730);
+  conifers.forEach((t, i) => {
+    const g = groundHeightAt(t.x, t.z);
+    const trunkH = t.h * 0.3;
+    const cr = t.h * 0.3;
+    const col = t.seed < 0.5 ? pineA : pineB;
+    setInstance(conTrunks, i, t.x, g - 0.3, t.z, 0.8, trunkH + 0.3, 0.8, t.seed * 6.28, 0, 0, null);
+    setInstance(conLow, i, t.x, g + trunkH - 0.4, t.z, cr, t.h * 0.62, cr, t.seed * 6.28, 0, 0, col);
+    setInstance(conHigh, i, t.x, g + trunkH + t.h * 0.3, t.z, cr * 0.6, t.h * 0.48, cr * 0.6, t.seed * 6.28, 0, 0, col);
+  });
+  scene.add(conTrunks, conLow, conHigh);
+
   // Palms: leaning trunks and skirt crowns along the coast.
   const palmTrunks = new THREE.InstancedMesh(trunkGeo, trunkMat, palms.length);
   const palmCrowns = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 0.55, 8), leafMat, palms.length);
@@ -443,6 +466,84 @@ function buildClouds(scene, world) {
   }
   scene.add(mesh);
   return mesh;
+}
+
+// --- The storm front (medevac) -------------------------------------------------
+// A wall of dark cloud rolling in from the west-south-west. It is scenery
+// with a deadline: its distance from the island is the front's ETA made
+// visible, and as it closes the fog comes with it.
+
+const FRONT_DIR = { x: -0.872, z: 0.49 }; // unit vector, island → front (WSW)
+const FOG_BASE = hexColor(PALETTE.fog);
+const FOG_GREY = new THREE.Color(0x87909c);
+const _fogCol = new THREE.Color();
+
+function buildFrontWall(scene) {
+  const grp = new THREE.Group();
+  // Detail-1 icosahedrons: enough faces that a puff's silhouette rounds off
+  // like a cloud mass. The old detail-0 puffs were up to 1,300 m across, so
+  // each one read as a single angled plate of sheet metal.
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  // Fog exempt: the front is the deadline made visible — it must stay dark
+  // and readable at two kilometres, where the golden fog would wash it out.
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
+  const rng = makeRng(4451);
+  // Dark blue-greys, the near layer darkest; nothing as pale as the old
+  // slab grey, so the bank reads as weather, not scenery cardboard.
+  const nearCols = [0x2c3641, 0x333f4b, 0x384654].map((c) => new THREE.Color(c));
+  const farCols = [0x414f5c, 0x485866, 0x3b4854].map((c) => new THREE.Color(c));
+  // A bank, not a wall: loose rows of modest puffs in two depth layers,
+  // the mass kept low so the front sits on the horizon instead of filling
+  // the sky. Local +X runs along the front, local +Z is its depth.
+  const rows = [
+    { n: 40, y0: 55, y1: 150, r0: 80, r1: 165, z0: 140, z1: 330, cols: farCols },
+    { n: 18, y0: 150, y1: 235, r0: 60, r1: 120, z0: 150, z1: 300, cols: farCols },
+    { n: 42, y0: 45, y1: 135, r0: 65, r1: 140, z0: -190, z1: 30, cols: nearCols },
+    { n: 14, y0: 130, y1: 205, r0: 50, r1: 100, z0: -170, z1: 0, cols: nearCols },
+    { n: 22, y0: 8, y1: 38, r0: 45, r1: 95, z0: -160, z1: 160, cols: nearCols },
+  ];
+  const total = rows.reduce((s, r) => s + r.n, 0);
+  const mesh = new THREE.InstancedMesh(geo, mat, total);
+  let i = 0;
+  for (const row of rows) {
+    for (let k = 0; k < row.n; k++) {
+      const along = (rng() * 2 - 1) * 1900;
+      const up = row.y0 + rng() * (row.y1 - row.y0);
+      const depth = row.z0 + rng() * (row.z1 - row.z0);
+      const r = row.r0 + rng() * (row.r1 - row.r0);
+      setInstance(mesh, i++, along, up, depth,
+        r * (1.35 + rng() * 0.5), r * (0.55 + rng() * 0.25), r * (0.9 + rng() * 0.3),
+        rng() * 6.28, (rng() - 0.5) * 0.7, (rng() - 0.5) * 0.7,
+        row.cols[(rng() * row.cols.length) | 0]);
+    }
+  }
+  grp.add(mesh);
+  // Local +X runs along the wall; the wall faces the island.
+  grp.rotation.y = 2.08;
+  grp.visible = false;
+  scene.add(grp);
+  return grp;
+}
+
+function syncFront(grp, scene, state) {
+  const m = state.mission;
+  const active = m && m.def.id === 'medevac' && state.screen !== 'title';
+  grp.visible = !!active;
+  if (!active) {
+    scene.fog.near = 1000;
+    scene.fog.far = 5000;
+    scene.fog.color.copy(FOG_BASE);
+    return;
+  }
+  const frac = m.frontArrived ? 0 : clamp(m.frontT / m.def.frontEta, 0, 1);
+  const dist = 700 + 2500 * frac;
+  grp.position.set(WORLD.islandCx + FRONT_DIR.x * dist, 0, WORLD.islandCz + FRONT_DIR.z * dist);
+  // In the last 50 seconds the murk arrives ahead of the wall itself.
+  const close = m.frontArrived ? 1 : clamp(1 - Math.max(0, m.frontT) / 50, 0, 1);
+  scene.fog.near = lerp(1000, 60, close);
+  scene.fog.far = lerp(5000, 780, close);
+  _fogCol.copy(FOG_BASE).lerp(FOG_GREY, close * 0.7);
+  scene.fog.color.copy(_fogCol);
 }
 
 // --- The Kestrel -------------------------------------------------------------
@@ -640,6 +741,9 @@ function syncBeacon(grp, state) {
       if (c) { show = true; x = c.x; z = c.z; y = Math.max(0, groundHeightAt(c.x, c.z)); }
     } else if (m.def.id === 'delivery') {
       const s = RUNWAYS[1];
+      show = true; x = s.cx; z = s.cz; y = groundHeightAt(s.cx, s.cz);
+    } else if (m.def.id === 'medevac') {
+      const s = RUNWAYS[0];
       show = true; x = s.cx; z = s.cz; y = groundHeightAt(s.cx, s.cz);
     }
   }

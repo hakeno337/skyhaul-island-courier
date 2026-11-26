@@ -73,6 +73,7 @@ export function readControls(input) {
     mission2: has('Digit2'),
     mission3: has('Digit3'),
     mission4: has('Digit4'),
+    mission5: has('Digit5'),
     drop: has('KeyF'),
     retry: has('KeyR'),
   };

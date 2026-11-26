@@ -23,6 +23,8 @@ export function stageShot(state, name) {
     p.speed = 52; p.vy = 2.8; p.throttle = 0.62; p.fuel = 71; p.onGround = false;
     p.propSpin = 2.2;
     state.camShot = { back: 13, up: 4.2, side: 3.2, look: 30 };
+    state.gNow = 1.09;
+    state.gPeak = 1.36;
     const m = state.mission;
     m.ringIndex = 1;
     m.score = 250;
@@ -60,6 +62,27 @@ export function stageShot(state, name) {
     m.target = { x: 1720, z: 300 };
     m.targetDist = 262;
     state.banner = null;
+  } else if (name === 'medevac') {
+    startMission(state, 4);
+    const p = state.plane;
+    // Mid-route with the patient: banked left onto the south-west run for
+    // Teluk Emas Field, the front wall standing dark on the horizon ahead.
+    p.x = 350; p.y = 55; p.z = 80;
+    p.heading = -2.08; p.pitch = -0.03; p.roll = -0.34;
+    p.speed = 44; p.vy = -0.4; p.throttle = 0.55; p.fuel = 64; p.hull = 97; p.onGround = false;
+    p.propSpin = 1.8;
+    const m = state.mission;
+    m.t = 95;
+    m.comfort = 86;
+    m.frontT = 105;
+    m.objectiveText = 'Fly her to Teluk Emas Field — under 1.4 G';
+    m.target = { x: RUNWAYS[0].cx, z: RUNWAYS[0].cz };
+    m.targetDist = 940;
+    state.gNow = 1.08;
+    state.gPeak = 1.38;
+    state.campaign = { cash: 4550, bestStars: { 0: 3, 1: 2, 2: 2, 3: 1 } };
+    state.campaignScore = 9100;
+    state.banner = null;
   } else if (name === 'results') {
     startMission(state, 1);
     const p = state.plane;
@@ -74,7 +97,11 @@ export function stageShot(state, name) {
       note: 'The crate is down at Kampung Aer — a smooth touchdown.',
       lines: [['Delivery made', 600], ['Touchdown: smooth', 300], ['Time bonus', 1116], ['Fuel left', 387], ['Airframe intact', 384]],
       total: 2787,
+      fee: 1800,
+      stars: 3,
+      breakdown: [['PRECISION', 3], ['TIME', 3], ['FUEL', 2], ['DAMAGE', 3]],
     };
+    state.campaign = { cash: 3050, bestStars: { 0: 3, 1: 3 } };
     state.campaignScore = 2787;
     state.screen = 'done';
     state.banner = null;
@@ -85,7 +112,9 @@ export function stageShot(state, name) {
     state.screen = 'title';
     state.time = 319;
     resetPlane(state.plane, RUNWAYS[0]);
-    state.campaignScore = 0;
+    // A campaign under way: two sorties flown well, cash in the tin.
+    state.campaign = { cash: 3050, bestStars: { 0: 3, 1: 2 } };
+    state.campaignScore = 5300;
     state.banner = null;
   }
 }

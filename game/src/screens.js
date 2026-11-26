@@ -1,15 +1,17 @@
 // Skyhaul 3D — the screens that frame the flying: a title screen over a slow
-// orbit of the island, and the results / failure / crash panels that close
-// a sortie. All share one house style: dark glass, amber headings.
+// orbit of the island with the campaign strip (one pilot, one aircraft, the
+// cash and stars she has earned), and the results / failure / crash panels
+// that close a sortie — score lines, a landing breakdown in stars, and the
+// fee the sortie paid. All share one house style: dark glass, amber headings.
 
-import { PALETTE } from './config.js';
+import { PALETTE, CAMPAIGN } from './config.js';
 import { MISSIONS } from './missions.js';
 
 const FONT = '"Avenir Next", "Segoe UI", system-ui, sans-serif';
 const MONO = '"SF Mono", Consolas, "Roboto Mono", monospace';
 
 // Title-screen mission rows: y positions are shared by drawing and clicking.
-export const TITLE_ROWS = { top: 356, rowH: 64, x: 340, w: 600 };
+export const TITLE_ROWS = { top: 262, rowH: 58, x: 340, w: 600 };
 
 export function titleMissionAt(mx, my) {
   const { top, rowH, x, w } = TITLE_ROWS;
@@ -28,6 +30,9 @@ function glassPanel(ctx, x, y, w, h) {
   ctx.stroke();
 }
 
+const starStr = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+const totalStars = (state) => state.campaign ? Object.values(state.campaign.bestStars).reduce((s, v) => s + v, 0) : 0;
+
 export function drawTitle(ctx, state, w, h) {
   // Warm gradient at the top so the masthead sits on sky, not on terrain.
   const g = ctx.createLinearGradient(0, 0, 0, 300);
@@ -38,66 +43,76 @@ export function drawTitle(ctx, state, w, h) {
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
-  ctx.font = `900 92px ${FONT}`;
+  ctx.font = `900 84px ${FONT}`;
   ctx.shadowColor = 'rgba(8, 24, 44, 0.7)';
   ctx.shadowBlur = 18;
-  ctx.fillText('SKYHAUL', w / 2, 138);
+  ctx.fillText('SKYHAUL', w / 2, 116);
   ctx.shadowBlur = 0;
-  ctx.font = `700 25px ${FONT}`;
+  ctx.font = `700 24px ${FONT}`;
   ctx.fillStyle = PALETTE.hudAmber;
-  ctx.fillText('I S L A N D   C O U R I E R', w / 2, 178);
-  ctx.font = `500 16.5px ${FONT}`;
+  ctx.fillText('I S L A N D   C O U R I E R', w / 2, 150);
+  ctx.font = `500 16px ${FONT}`;
   ctx.fillStyle = 'rgba(238, 247, 255, 0.92)';
-  ctx.fillText('One little prop plane, one island, and everybody\'s parcels — Teluk Emas, golden hour.', w / 2, 208);
+  ctx.fillText('One little prop plane, one island, and everybody\'s parcels — Teluk Emas, golden hour.', w / 2, 178);
+
+  const { top, rowH, x, w: rw } = TITLE_ROWS;
+
+  // The campaign strip: who flies, what she flies, what she has earned.
+  const cash = state.campaign ? state.campaign.cash : 0;
+  glassPanel(ctx, x, 196, rw, 46);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = PALETTE.hudText;
+  ctx.font = `700 14.5px ${FONT}`;
+  ctx.fillText(`PILOT ${CAMPAIGN.pilot.toUpperCase()} · ${CAMPAIGN.aircraft} · ${CAMPAIGN.reg}`, x + 20, 225);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = PALETTE.hudAmber;
+  ctx.font = `800 15px ${MONO}`;
+  ctx.fillText(`$ ${cash.toLocaleString('en-US')}  ·  ★ ${totalStars(state)}/15`, x + rw - 20, 225);
+  ctx.textAlign = 'left';
 
   // The sortie board.
-  const { top, rowH, x, w: rw } = TITLE_ROWS;
-  ctx.textAlign = 'left';
   MISSIONS.forEach((mission, i) => {
     const y = top + i * rowH;
-    glassPanel(ctx, x, y, rw, rowH - 10);
+    glassPanel(ctx, x, y, rw, rowH - 8);
     ctx.fillStyle = PALETTE.hudAmber;
-    ctx.font = `800 21px ${FONT}`;
-    ctx.fillText(`${i + 1}.  ${mission.name}`, x + 22, y + 30);
+    ctx.font = `800 20px ${FONT}`;
+    ctx.fillText(`${i + 1}.  ${mission.name}`, x + 22, y + 27);
     ctx.fillStyle = 'rgba(226, 240, 252, 0.92)';
-    ctx.font = `500 13.5px ${FONT}`;
-    ctx.fillText(mission.sub, x + 22, y + 50);
+    ctx.font = `500 13px ${FONT}`;
+    ctx.fillText(mission.sub, x + 22, y + 45);
+    const best = state.campaign ? (state.campaign.bestStars[i] || 0) : 0;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = best > 0 ? PALETTE.hudAmber : 'rgba(160, 205, 240, 0.5)';
+    ctx.font = `700 15px ${FONT}`;
+    ctx.fillText(starStr(best), x + rw - 20, y + 27);
     ctx.fillStyle = 'rgba(160, 205, 240, 0.85)';
     ctx.font = `700 12px ${MONO}`;
-    ctx.textAlign = 'right';
-    ctx.fillText('FLY ▸', x + rw - 20, y + 36);
+    ctx.fillText(`FEE $${mission.fee.toLocaleString('en-US')}`, x + rw - 20, y + 45);
     ctx.textAlign = 'left';
   });
 
   // Controls card.
-  const cy = top + MISSIONS.length * rowH + 14;
-  glassPanel(ctx, x, cy, rw, 92);
+  const cy = top + MISSIONS.length * rowH + 12;
+  glassPanel(ctx, x, cy, rw, 84);
   ctx.fillStyle = PALETTE.hudAmber;
   ctx.font = `700 13px ${FONT}`;
   ctx.fillText('CONTROLS', x + 22, cy + 24);
   ctx.fillStyle = 'rgba(232, 244, 255, 0.95)';
   ctx.font = `500 14.5px ${FONT}`;
-  ctx.fillText('Pitch  W / S or ↑ / ↓        Bank  A / D or ← / →        Throttle  SHIFT / Q (or wheel)', x + 22, cy + 48);
-  ctx.fillText('The mouse steers too — ease her around, watch the stall, mind the fuel.', x + 22, cy + 72);
+  ctx.fillText('Pitch  W / S or ↑ / ↓        Bank  A / D or ← / →        Throttle  SHIFT / Q (or wheel)', x + 22, cy + 47);
+  ctx.fillText('The mouse steers too — ease her around, watch the stall, mind the fuel.', x + 22, cy + 69);
 
   if (Math.sin(state.time * 2.6) > -0.2) {
-    const prompt = 'Press 1, 2, 3 or 4 — or click a sortie — to fly';
+    const prompt = 'Press 1–5, or click a sortie, to fly';
     ctx.font = `800 19px ${FONT}`;
     const pw = ctx.measureText(prompt).width + 44;
     ctx.fillStyle = 'rgba(7, 15, 24, 0.72)';
     ctx.beginPath();
-    ctx.roundRect(w / 2 - pw / 2, cy + 116, pw, 34, 17);
+    ctx.roundRect(w / 2 - pw / 2, cy + 100, pw, 34, 17);
     ctx.fill();
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(prompt, w / 2, cy + 139);
-    ctx.textAlign = 'left';
-  }
-  if (state.campaignScore > 0) {
-    ctx.textAlign = 'center';
-    ctx.fillStyle = PALETTE.hudAmber;
-    ctx.font = `700 16px ${MONO}`;
-    ctx.fillText(`CAMPAIGN SCORE  ${state.campaignScore}`, w / 2, 246);
+    ctx.fillText(prompt, w / 2, cy + 123);
     ctx.textAlign = 'left';
   }
 }
@@ -105,10 +120,11 @@ export function drawTitle(ctx, state, w, h) {
 function drawEndPanel(ctx, state, w, h, accent) {
   const r = state.result;
   if (!r) return;
+  const bd = r.breakdown || null;
   const pw = 560;
-  const ph = 330 + r.lines.length * 30;
+  const ph = 208 + r.lines.length * 30 + (bd ? 30 + bd.length * 26 : 0) + (r.success ? 40 : 0) + 92;
   const x = (w - pw) / 2;
-  const y = (h - ph) / 2 - 30;
+  const y = (h - ph) / 2 - 20;
   glassPanel(ctx, x, y, pw, ph);
   ctx.textAlign = 'center';
   ctx.fillStyle = accent;
@@ -128,7 +144,7 @@ function drawEndPanel(ctx, state, w, h, accent) {
     ctx.font = `500 16px ${FONT}`;
     ctx.fillText(name, x + 44, ly);
     ctx.textAlign = 'right';
-    ctx.fillStyle = PALETTE.hudText;
+    ctx.fillStyle = pts < 0 ? PALETTE.hudRed : PALETTE.hudText;
     ctx.font = `700 16px ${MONO}`;
     ctx.fillText(`${pts}`, x + pw - 44, ly);
     ly += 30;
@@ -146,11 +162,46 @@ function drawEndPanel(ctx, state, w, h, accent) {
   ctx.fillStyle = PALETTE.hudAmber;
   ctx.font = `800 21px ${MONO}`;
   ctx.fillText(`${r.total}`, x + pw - 44, ly + 18);
+  ly += 48;
+
+  if (bd) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = PALETTE.hudAmber;
+    ctx.font = `700 12.5px ${FONT}`;
+    ctx.fillText('LANDING BREAKDOWN', x + 44, ly + 6);
+    ly += 30;
+    for (const [name, stars] of bd) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(226, 240, 252, 0.92)';
+      ctx.font = `500 14.5px ${FONT}`;
+      ctx.fillText(name, x + 44, ly);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = PALETTE.hudAmber;
+      ctx.font = `700 16px ${FONT}`;
+      ctx.fillText(starStr(stars).split('').join(' '), x + pw - 44, ly);
+      ly += 26;
+    }
+    ly += 4;
+  }
+
+  if (r.success) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `800 17px ${FONT}`;
+    ctx.fillText('FEE EARNED', x + 44, ly + 16);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = PALETTE.hudAmber;
+    ctx.font = `800 19px ${MONO}`;
+    ctx.fillText(`${starStr(r.stars || 0).split('').join(' ')}   $${(r.fee || 0).toLocaleString('en-US')}`, x + pw - 44, ly + 16);
+    ly += 40;
+  }
+
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(200, 226, 246, 0.9)';
   ctx.font = `600 14.5px ${FONT}`;
-  ctx.fillText(`Campaign score  ${state.campaignScore}`, w / 2, ly + 48);
-  ctx.fillText('ENTER  next sortie      R  fly it again      T  title', w / 2, ly + 76);
+  const cash = state.campaign ? state.campaign.cash : 0;
+  ctx.fillText(`Campaign  $${cash.toLocaleString('en-US')}  ·  ★ ${totalStars(state)}/15  ·  score ${state.campaignScore}`, w / 2, ly + 22);
+  ctx.fillText('ENTER  next sortie      R  fly it again      T  title', w / 2, ly + 50);
   ctx.textAlign = 'left';
 }
 
