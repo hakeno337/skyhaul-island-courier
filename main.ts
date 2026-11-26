@@ -1,8 +1,9 @@
-// Skyhaul — Island Courier: the hand-in program (Node 22, standard library only).
-// The game itself is the static site in game/ — plain files a desktop browser
-// opens offline. This program copies game/ and screenshots/ into the output
-// directory and writes dossier.json there with the kit's vendored library, so
-// the grader rebuilds exactly the same bytes from the same files.
+// Skyhaul — Island Courier (3D): the hand-in program (Node 22, standard
+// library only). The game is the static site under game/ — plain files a
+// desktop browser opens offline, Three.js vendored beside them. This program
+// copies game/ and screenshots/ into the output directory and writes
+// dossier.json there with the kit's vendored library, so the grader rebuilds
+// exactly the same bytes from the same files.
 //
 // Locally:  mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 // (MAKEFUN_OUTPUT_DIR stands in for /output outside the grader.)

@@ -1,6 +1,6 @@
-// Skyhaul — a pocket static server for local play: `node serve.ts` puts game/
-// on http://localhost:8080 (or --port N). Development only; the entry itself
-// needs no server beyond any static file host.
+// Skyhaul 3D — a tiny static server for local play: `node serve.ts` serves
+// game/ at http://localhost:8080 (or --port N). Development only; the entry
+// itself runs from any static file host.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -56,5 +56,5 @@ createServer((req, res) => {
   });
   createReadStream(file).pipe(res);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Skyhaul is on http://localhost:${port}`);
+  console.log(`Skyhaul 3D is on http://localhost:${port}`);
 });
