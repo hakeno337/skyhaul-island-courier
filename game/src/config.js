@@ -48,6 +48,8 @@ export const SCORE = {
   checkpoint: 400,
   deliveryBase: 600,
   softLandingBonus: 300,
+  rescueBase: 400,
+  dropMax: 600,
   perSecondLeft: 6,
   perFuelLeft: 9,
   perHullLeft: 4,

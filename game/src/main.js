@@ -67,13 +67,14 @@ function step(dt) {
   state.time += dt;
   const controls = readControls(input);
   const coast = { pitch: 0, roll: 0, throttleUp: false, throttleDown: true, wheelTrim: state.plane.lastWheel };
-  if (controls.confirm || controls.mission1 || controls.mission2 || controls.mission3) unlockAudio();
+  if (controls.confirm || controls.mission1 || controls.mission2 || controls.mission3 || controls.mission4) unlockAudio();
 
   if (state.screen === 'title') {
     let pick = -1;
     if (controls.mission1) pick = 0;
     if (controls.mission2) pick = 1;
     if (controls.mission3) pick = 2;
+    if (controls.mission4) pick = 3;
     if (pick < 0 && input.clicked) {
       pick = titleMissionAt(input.mouseX * VIEW.width, input.mouseY * VIEW.height);
       if (pick >= 0) sfx.click();
@@ -81,6 +82,7 @@ function step(dt) {
     if (pick >= 0) startMission(state, pick);
   } else if (state.screen === 'fly') {
     const ev = stepPlane(state.plane, controls, world, dt);
+    if (controls.drop) ev.drop = true;
     if (ev.clipped) {
       state.banner = { text: `Clipped a ${ev.clipped}!`, sub: 'The airframe felt that one', until: state.time + 1.6 };
       sfx.thud();
@@ -103,7 +105,7 @@ function step(dt) {
 function frame() {
   ctx.clearRect(0, 0, VIEW.width, VIEW.height);
   drawScene(ctx, state, world, VIEW.width, VIEW.height);
-  if (state.screen === 'fly') drawHud(ctx, state, VIEW.width, VIEW.height);
+  if (state.screen === 'fly') drawHud(ctx, state, world, VIEW.width, VIEW.height);
   else if (state.screen === 'title') drawTitle(ctx, state, VIEW.width, VIEW.height);
   else if (state.screen === 'done') drawResults(ctx, state, VIEW.width, VIEW.height);
   else if (state.screen === 'failed') drawFailed(ctx, state, VIEW.width, VIEW.height);

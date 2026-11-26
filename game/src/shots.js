@@ -52,6 +52,23 @@ export function stageShot(state, name) {
     state.mission.targetDist = 330;
     state.banner = null;
     snapCameraBehind(state);
+  } else if (name === 'rescue') {
+    startMission(state, 3);
+    const p = state.plane;
+    // Low over the east sea, banking in toward the lit drop circle, buoy away.
+    p.x = 1420; p.y = 38; p.z = 610;
+    p.heading = 1.08; p.pitch = -0.02; p.roll = -0.18;
+    p.speed = 44; p.vy = -0.8; p.throttle = 0.45; p.fuel = 66; p.onGround = false;
+    p.propSpin = 1.9;
+    const m = state.mission;
+    m.t = 52;
+    m.dropped = true;
+    m.buoy = { x: 1630, y: 27, z: 385, vx: 0, vz: 0, vy: -6 };
+    m.objectiveText = 'Buoy away — watch the splash';
+    m.target = { x: 1720, z: 300 };
+    m.targetDist = 431;
+    state.banner = null;
+    snapCameraBehind(state);
   } else if (name === 'results') {
     startMission(state, 1);
     const p = state.plane;

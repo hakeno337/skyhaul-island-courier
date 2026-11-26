@@ -3,8 +3,8 @@
 // billboards sorted far to near, and the Kestrel is drawn as a shaded vector
 // sprite that banks, pitches and bobs with the flight model.
 
-import { VIEW, PALETTE, DEG, clamp, lerp, angDiff } from './config.js';
-import { groundHeightAt, shadeColor, MOUNTAINS } from './world.js';
+import { VIEW, WORLD, PALETTE, DEG, clamp, lerp, angDiff } from './config.js';
+import { groundHeightAt, shadeColor, MOUNTAINS, islandField, makeRng, coastlinePoints } from './world.js';
 
 export function createCamera() {
   return { x: 0, y: 120, z: 1500, heading: 0, pitch: -0.06, roll: 0, shake: 0 };
@@ -142,8 +142,111 @@ function drawGround(ctx, proj, state, world) {
   }
 }
 
-function drawRunways(ctx, proj, state, world) {
-  for (const rwy of world.runways) {
+// The sea, given a little life: sun glints twinkling on a precomputed scatter
+// of points, and a soft foam edge breathing along the shoreline. Both sets
+// are generated once from the island field; a frame only projects and sines.
+let seaGlints = null;
+function getSeaGlints() {
+  if (seaGlints) return seaGlints;
+  const rng = makeRng(918273);
+  seaGlints = [];
+  for (let i = 0; i < 3200 && seaGlints.length < 850; i++) {
+    const x = (rng() - 0.5) * 5000;
+    const z = (rng() - 0.5) * 5000;
+    if (islandField(x, z) < 1.03) continue;
+    seaGlints.push({ x, z, phase: rng() * Math.PI * 2 });
+  }
+  return seaGlints;
+}
+
+let foamLine = null;
+function getFoamLine() {
+  if (foamLine) return foamLine;
+  foamLine = coastlinePoints().map((pt, i) => {
+    const dx = pt.x - WORLD.islandCx;
+    const dz = pt.z - WORLD.islandCz;
+    const len = Math.hypot(dx, dz) || 1;
+    return { x: pt.x + (dx / len) * 30, z: pt.z + (dz / len) * 30, phase: i * 0.7 };
+  });
+  return foamLine;
+}
+
+function drawSeaLife(ctx, proj, state) {
+  const cam = state.camera;
+  for (const g of getSeaGlints()) {
+    const dx = g.x - cam.x;
+    const dz = g.z - cam.z;
+    if (dx * dx + dz * dz > 1750 * 1750) continue;
+    const tw = 0.5 + 0.5 * Math.sin(state.time * 2.3 + g.phase + Math.sin(state.time * 0.31 + g.x * 0.004) * 1.6);
+    if (tw < 0.74) continue;
+    const p = proj(g.x, 0, g.z);
+    if (!p) continue;
+    const wdt = clamp(p.scale * 8, 1, 9);
+    ctx.fillStyle = `rgba(255, 228, 175, ${((tw - 0.74) / 0.26 * 0.55).toFixed(3)})`;
+    ctx.fillRect(p.x - wdt / 2, p.y, wdt, Math.max(1, p.scale * 0.9));
+  }
+  for (const f of getFoamLine()) {
+    const dx = f.x - cam.x;
+    const dz = f.z - cam.z;
+    if (dx * dx + dz * dz > 1500 * 1500) continue;
+    const p = proj(f.x, 0, f.z);
+    if (!p) continue;
+    const breathe = 0.5 + 0.5 * Math.sin(state.time * 0.85 + f.phase);
+    const rx = clamp(p.scale * 17, 1.5, 30);
+    ctx.fillStyle = `rgba(255, 253, 246, ${(0.08 + breathe * 0.16).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, rx, rx * 0.26, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// The rescue drop zone: a lit circle on the water with the fishing boat at
+// its heart, and the pump buoy itself on its way down.
+function drawDropRing(ctx, proj, drop, time, cam) {
+  const c = proj(drop.x, 0, drop.z);
+  if (!c) return;
+  const rxv = Math.cos(cam.heading);
+  const rzv = Math.sin(cam.heading);
+  const side = proj(drop.x + rxv * 40, 0, drop.z + rzv * 40);
+  const fwd = proj(drop.x + Math.sin(cam.heading) * 40, 0, drop.z - Math.cos(cam.heading) * 40);
+  if (!side || !fwd) return;
+  const rx = Math.max(3, Math.abs(side.x - c.x));
+  const ry = Math.max(2, Math.abs(fwd.y - c.y));
+  const pulse = 1 + Math.sin(time * 2.6) * 0.06;
+  ctx.save();
+  ctx.shadowColor = 'rgba(110, 225, 255, 0.8)';
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = 'rgba(160, 235, 255, 0.9)';
+  ctx.lineWidth = clamp(c.scale * 2.6, 1.6, 7);
+  ctx.beginPath();
+  ctx.ellipse(c.x, c.y, rx * pulse, ry * pulse, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+  const bw = clamp(c.scale * 16, 2, 26);
+  ctx.fillStyle = '#7a3f2a';
+  ctx.beginPath();
+  ctx.ellipse(c.x, c.y, bw, bw * 0.32, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e8e0cc';
+  ctx.fillRect(c.x - bw * 0.12, c.y - bw * 0.5, bw * 0.24, bw * 0.4);
+}
+
+function drawDropBuoy(ctx, proj, b) {
+  const p = proj(b.x, b.y, b.z);
+  if (!p) return;
+  const s = clamp(p.scale * 5, 1.5, 12);
+  ctx.fillStyle = '#ff7a1a';
+  ctx.beginPath();
+  ctx.moveTo(p.x - s, p.y);
+  ctx.lineTo(p.x, p.y - s * 1.7);
+  ctx.lineTo(p.x + s, p.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#ffe9a8';
+  ctx.fillRect(p.x - s * 0.16, p.y - s * 2.3, s * 0.32, s * 0.6);
+}
+
+function drawRunways(ctx, proj, state, world) {  for (const rwy of world.runways) {
     const s = Math.sin(rwy.heading);
     const c = Math.cos(rwy.heading);
     const corner = (along, across) => proj(
@@ -664,6 +767,7 @@ export function drawScene(ctx, state, world, w, h) {
   const proj = makeProjector(cam, w, h);
   drawSky(ctx, cam, w, h, state.time);
   drawGround(ctx, proj, state, world);
+  drawSeaLife(ctx, proj, state);
   drawRunways(ctx, proj, state, world);
 
   // Everything with height, sorted far to near and drawn in one pass.
@@ -706,6 +810,10 @@ export function drawScene(ctx, state, world, w, h) {
     } else if (m.def.id === 'delivery') {
       const s = world.runways[1];
       drawBeacon(ctx, proj, s.cx, s.cz, 'rgba(255, 170, 90, 0.8)', state.time);
+    } else if (m.def.id === 'rescue') {
+      drawBeacon(ctx, proj, m.def.drop.x, m.def.drop.z, 'rgba(110, 225, 255, 0.75)', state.time);
+      drawDropRing(ctx, proj, m.def.drop, state.time, cam);
+      if (m.buoy) drawDropBuoy(ctx, proj, m.buoy);
     }
   }
 

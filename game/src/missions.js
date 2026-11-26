@@ -1,6 +1,7 @@
-// Skyhaul — the three sorties. Each mission is a different kind of flying:
+// Skyhaul — the four sorties. Each mission is a different kind of flying:
 // a ring circuit against the clock, a delivery that ends in a landing on a
-// short dirt strip, and a storm patrol through checkpoints in gusting wind.
+// short dirt strip, a storm patrol through checkpoints in gusting wind, and
+// a low-level rescue drop over the sea.
 
 import { SCORE } from './config.js';
 import { RUNWAYS, PLACES } from './world.js';
@@ -51,6 +52,17 @@ export const MISSIONS = [
     ],
     wind: { x: 5.5, z: 4.5 },
   },
+  {
+    id: 'rescue',
+    name: 'Harbour Rescue',
+    sub: 'A fishing boat is taking water — put the pump buoy right on her.',
+    brief: 'A fishing boat off the lighthouse point is taking water and needs the pump buoy. Fly out low and slow: you must be under 150 ft when you let go (F to drop) or the fall ruins the aim. The closer the splash lands to the lit circle, the bigger the pay — inside 30 m is a bullseye.',
+    startRunway: 0,
+    timeLimit: 200,
+    rings: [],
+    drop: { x: 1720, z: 300 },
+    dropMaxY: 45.7, // metres = 150 ft: the low-altitude gate at the drop
+  },
 ];
 
 export function startMission(state, index) {
@@ -63,6 +75,8 @@ export function startMission(state, index) {
     score: 0,
     ringIndex: 0,
     checkpointIndex: 0,
+    dropped: false,
+    buoy: null,
     phase: 'fly',
     finished: false,
     objectiveText: '',
@@ -93,6 +107,12 @@ function updateObjective(state) {
     const c = m.def.checkpoints[m.checkpointIndex];
     m.objectiveText = c ? `Checkpoint: ${c.label}` : 'All checkpoints visited';
     m.target = c ? { x: c.x, z: c.z } : null;
+  } else if (m.def.id === 'rescue') {
+    m.target = { x: m.def.drop.x, z: m.def.drop.z };
+    if (m.buoy) m.objectiveText = 'Buoy away — watch the splash';
+    else if (p.onGround) m.objectiveText = 'Get airborne, stay low, F drops the buoy';
+    else if (p.y > m.def.dropMaxY) m.objectiveText = `Drop zone ahead — get below ${Math.round(m.def.dropMaxY * 3.281)} ft`;
+    else m.objectiveText = 'In the gate — F to drop the buoy';
   }
   if (m.target) {
     m.targetDist = Math.round(Math.hypot(p.x - m.target.x, p.z - m.target.z));
@@ -171,6 +191,61 @@ export function stepMission(state, ev, dt) {
     }
   }
 
+  if (m.def.id === 'rescue') {
+    // The drop itself: F lets go, but only inside the low-altitude gate.
+    if (ev.drop && !m.dropped && !p.onGround) {
+      if (p.y > m.def.dropMaxY) {
+        if (state.time - (m.dropWarnAt || -9) > 1.8) {
+          m.dropWarnAt = state.time;
+          setBanner(state, 'Too high to drop', 'Get below 150 ft — from up there it drifts', 1.6);
+        }
+      } else {
+        m.dropped = true;
+        const hSpeed = p.speed * Math.cos(p.pitch * 0.55);
+        m.buoy = {
+          x: p.x, y: p.y - 2, z: p.z,
+          vx: Math.sin(p.heading) * hSpeed * 0.94,
+          vz: -Math.cos(p.heading) * hSpeed * 0.94,
+          vy: p.vy,
+        };
+        setBanner(state, 'Buoy away!', 'Fingers crossed for the splash', 1.5);
+        state.cues.push('checkpoint');
+      }
+    }
+    // Once away, the buoy falls ballistically until it splashes.
+    if (m.buoy) {
+      const b = m.buoy;
+      b.vy -= 16 * dt;
+      b.x += b.vx * dt;
+      b.z += b.vz * dt;
+      b.y += b.vy * dt;
+      if (b.y <= 0) {
+        const dist = Math.round(Math.hypot(b.x - m.def.drop.x, b.z - m.def.drop.z));
+        m.buoy = null;
+        const left = Math.max(0, m.def.timeLimit - m.t);
+        if (dist > 450) {
+          finishMission(state, false, 'Wide of the mark', `The buoy splashed ${dist} m from the boat — far beyond her reach.`, [
+            [`Drop accuracy: ${dist} m`, 0],
+            ['Fuel left', Math.round(p.fuel) * SCORE.perFuelLeft],
+            ['Airframe intact', Math.round(p.hull) * SCORE.perHullLeft],
+          ]);
+          state.cues.push('fail');
+        } else {
+          const accuracy = dist <= 30 ? SCORE.dropMax : dist <= 80 ? 420 : dist <= 160 ? 260 : 120;
+          finishMission(state, true, dist <= 30 ? 'Bullseye!' : 'Supplies delivered!', `The buoy splashed ${dist} m from the boat — close enough for her crew to haul it in.`, [
+            ['Rescue delivery', SCORE.rescueBase],
+            [`Drop accuracy: ${dist} m`, accuracy],
+            ['Time bonus', Math.round(left) * SCORE.perSecondLeft],
+            ['Fuel left', Math.round(p.fuel) * SCORE.perFuelLeft],
+            ['Airframe intact', Math.round(p.hull) * SCORE.perHullLeft],
+          ]);
+          state.cues.push('success');
+        }
+        return;
+      }
+    }
+  }
+
   if (m.def.id === 'delivery' && ev.landed) {
     if (ev.landed.runway === RUNWAYS[1]) {
       const landingPay = ev.landed.quality === 'smooth' ? SCORE.softLandingBonus : ev.landed.quality === 'firm' ? 150 : 0;
@@ -195,7 +270,7 @@ export function stepMission(state, ev, dt) {
   if (ev.landed && m.def.id !== 'delivery') {
     const home = ev.landed.runway === RUNWAYS[0];
     finishMission(state, m.score > 0, home ? 'Home safe' : 'Down in one piece', home ? 'You brought her home early.' : 'Not the home field, but a landing you walk away from.', [
-      [m.def.id === 'rings' ? `Rings, ${m.ringIndex} of ${m.def.rings.length}` : `Checkpoints, ${m.checkpointIndex} of 3`, m.score],
+      [m.def.id === 'rings' ? `Rings, ${m.ringIndex} of ${m.def.rings.length}` : m.def.id === 'patrol' ? `Checkpoints, ${m.checkpointIndex} of 3` : m.dropped ? 'Buoy dropped' : 'Buoy never dropped', m.score],
       ['Fuel left', Math.round(p.fuel) * SCORE.perFuelLeft],
       ['Airframe intact', Math.round(p.hull) * SCORE.perHullLeft],
     ]);
@@ -204,7 +279,7 @@ export function stepMission(state, ev, dt) {
 
   if (m.t > m.def.timeLimit && !m.finished) {
     finishMission(state, false, 'Out of time', 'The light went before the job was done.', [
-      [m.def.id === 'rings' ? `Rings, ${m.ringIndex} of ${m.def.rings.length}` : m.def.id === 'patrol' ? `Checkpoints, ${m.checkpointIndex} of 3` : 'Distance covered', m.score],
+      [m.def.id === 'rings' ? `Rings, ${m.ringIndex} of ${m.def.rings.length}` : m.def.id === 'patrol' ? `Checkpoints, ${m.checkpointIndex} of 3` : m.def.id === 'rescue' ? 'Buoy never dropped' : 'Distance covered', m.score],
     ]);
     state.cues.push('fail');
   }

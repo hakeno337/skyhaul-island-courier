@@ -81,7 +81,7 @@ export function drawTitle(ctx, state, w, h) {
   ctx.fillText('The mouse steers too — ease her around, watch the stall, mind the fuel.', x + 22, cy + 72);
 
   if (Math.sin(state.time * 2.6) > -0.2) {
-    const prompt = 'Press 1, 2 or 3 — or click a sortie — to fly';
+    const prompt = 'Press 1, 2, 3 or 4 — or click a sortie — to fly';
     ctx.font = `800 19px ${FONT}`;
     const pw = ctx.measureText(prompt).width + 44;
     ctx.fillStyle = 'rgba(7, 15, 24, 0.72)';

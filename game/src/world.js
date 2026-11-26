@@ -46,6 +46,30 @@ export function islandField(x, z) {
   return Math.hypot(dx, dz) + noise2(x * 0.0011, z * 0.0011) * 0.13;
 }
 
+// The coastline as a closed loop of points where the island field crosses 1,
+// found by walking a ray out from the island centre in every direction. One
+// computation, cached: the foam line and the radar both draw from it.
+let coastCache = null;
+export function coastlinePoints(steps = 128) {
+  if (coastCache) return coastCache;
+  const pts = [];
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
+    let lo = 0;
+    let hi = 2600;
+    for (let it = 0; it < 20; it++) {
+      const mid = (lo + hi) / 2;
+      if (islandField(WORLD.islandCx + dx * mid, WORLD.islandCz + dz * mid) < 1) lo = mid;
+      else hi = mid;
+    }
+    pts.push({ x: WORLD.islandCx + dx * lo, z: WORLD.islandCz + dz * lo });
+  }
+  coastCache = pts;
+  return pts;
+}
+
 export const RUNWAYS = [
   { name: 'Teluk Emas Field', cx: -260, cz: 780, heading: 0, length: 640, width: 36, kind: 'paved' },
   { name: 'Kampung Strip', cx: 830, cz: -430, heading: -0.42, length: 350, width: 21, kind: 'dirt' },

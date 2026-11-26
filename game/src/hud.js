@@ -2,7 +2,8 @@
 // altitude and speed blocks in the corners, a mission card, and a bottom
 // dashboard of real gauges: airspeed, altimeter, attitude ball, fuel, hull.
 
-import { PALETTE, DEG, clamp } from './config.js';
+import { PALETTE, DEG, WORLD, clamp } from './config.js';
+import { RUNWAYS, PLACES, coastlinePoints } from './world.js';
 import { formatClock } from './missions.js';
 
 const FONT = '"Avenir Next", "Segoe UI", system-ui, sans-serif';
@@ -175,7 +176,130 @@ function drawBarGauge(ctx, x, y, w, h, frac, title, text, danger) {
   value(ctx, text, x + w + 8, y + h - 2, 13, PALETTE.hudText);
 }
 
-export function drawHud(ctx, state, w, h) {
+// The radar: a north-up plot of the whole island on one dial. Coastline from
+// the world's own island field, both strips, the storm banks, the active
+// objective blinking amber, and the aircraft as an arrow that turns with her
+// heading — all from live world coordinates, redrawn every frame.
+function drawRadar(ctx, state, world, cx, cy, r) {
+  const p = state.plane;
+  ctx.save();
+  ctx.fillStyle = '#0b1723';
+  ctx.strokeStyle = 'rgba(170, 220, 255, 0.5)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+
+  const HALF = 2050; // metres of world across the radius: island plus its sea marks
+  const s = r / HALF;
+  const mx = (x) => cx + (x - WORLD.islandCx) * s;
+  const mz = (z) => cy + (z - WORLD.islandCz) * s;
+
+  // The island landmass, filled from the coastline loop, sand-rimmed.
+  const coast = coastlinePoints();
+  ctx.beginPath();
+  coast.forEach((pt, i) => (i ? ctx.lineTo(mx(pt.x), mz(pt.z)) : ctx.moveTo(mx(pt.x), mz(pt.z))));
+  ctx.closePath();
+  ctx.fillStyle = '#26502c';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(236, 217, 160, 0.75)';
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  // Range ring and cross ticks.
+  ctx.strokeStyle = 'rgba(160, 220, 255, 0.16)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - r, cy); ctx.lineTo(cx - r * 0.88, cy);
+  ctx.moveTo(cx + r * 0.88, cy); ctx.lineTo(cx + r, cy);
+  ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy - r * 0.88);
+  ctx.moveTo(cx, cy + r * 0.88); ctx.lineTo(cx, cy + r);
+  ctx.stroke();
+
+  // Storm banks: soft grey blobs where the standing storms sit.
+  if (world) {
+    ctx.fillStyle = 'rgba(130, 146, 162, 0.5)';
+    for (const c of world.clouds) {
+      if (!c.storm) continue;
+      ctx.beginPath();
+      ctx.arc(mx(c.x), mz(c.z), Math.max(2.2, c.s * s * 1.2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Both runways as pale bars at their true headings.
+  ctx.strokeStyle = '#e8e4da';
+  ctx.lineWidth = 1.7;
+  for (const rwy of RUNWAYS) {
+    const a = rwy.length / 2;
+    const dx = Math.sin(rwy.heading) * a;
+    const dz = -Math.cos(rwy.heading) * a;
+    ctx.beginPath();
+    ctx.moveTo(mx(rwy.cx - dx), mz(rwy.cz - dz));
+    ctx.lineTo(mx(rwy.cx + dx), mz(rwy.cz + dz));
+    ctx.stroke();
+  }
+
+  // The lighthouse, a steady warm dot.
+  ctx.fillStyle = 'rgba(255, 240, 170, 0.95)';
+  ctx.beginPath();
+  ctx.arc(mx(PLACES.lighthouse.x), mz(PLACES.lighthouse.z), 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // The sweep, turning quietly under everything that matters.
+  const sa = state.time * 0.8;
+  ctx.strokeStyle = 'rgba(125, 255, 154, 0.30)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.sin(sa) * r, cy - Math.cos(sa) * r);
+  ctx.stroke();
+
+  // The active objective: a solid amber dot with a pulsing ring.
+  const m = state.mission;
+  if (m && m.target) {
+    const tx = mx(m.target.x);
+    const ty = mz(m.target.z);
+    const pulse = (state.time * 0.9) % 1;
+    ctx.strokeStyle = `rgba(255, 182, 72, ${0.85 * (1 - pulse)})`;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 2.5 + pulse * 5.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = PALETTE.hudAmber;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // The aircraft: a white arrow at her true position, turned to her heading.
+  ctx.translate(mx(p.x), mz(p.z));
+  ctx.rotate(p.heading);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = PALETTE.hudAmber;
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(0, -6.4);
+  ctx.lineTo(4.1, 5.2);
+  ctx.lineTo(0, 2.6);
+  ctx.lineTo(-4.1, 5.2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  label(ctx, 'N', cx, cy - r + 12, 9, 'rgba(200, 225, 245, 0.85)', 'center');
+  label(ctx, 'RADAR', cx, cy + r + 13, 9.5, 'rgba(200, 225, 245, 0.8)', 'center');
+}
+
+export function drawHud(ctx, state, world, w, h) {
   const p = state.plane;
   const m = state.mission;
   const altFt = Math.round(p.y * 3.281);
@@ -204,7 +328,7 @@ export function drawHud(ctx, state, w, h) {
     panel(ctx, w - 300, 100, 284, 96);
     label(ctx, m.def.name.toUpperCase(), w - 288, 122, 12, PALETTE.hudAmber);
     label(ctx, m.objectiveText, w - 288, 142, 13.5, PALETTE.hudText);
-    const progress = m.def.id === 'rings' ? `${m.ringIndex}/${m.def.rings.length} rings` : m.def.id === 'patrol' ? `${m.checkpointIndex}/3 marks` : 'one crate, one strip';
+    const progress = m.def.id === 'rings' ? `${m.ringIndex}/${m.def.rings.length} rings` : m.def.id === 'patrol' ? `${m.checkpointIndex}/3 marks` : m.def.id === 'rescue' ? (m.buoy ? 'buoy away' : m.dropped ? 'splashdown' : 'buoy aboard') : 'one crate, one strip';
     label(ctx, progress, w - 288, 160, 11.5, 'rgba(200, 228, 248, 0.9)');
     value(ctx, formatClock(left), w - 28, 160, 13, left < 30 ? PALETTE.hudRed : PALETTE.hudText, 'right');
     if (m.target) {
@@ -283,6 +407,8 @@ export function drawHud(ctx, state, w, h) {
   drawBarGauge(ctx, 440, cy - 32, 190, 15, p.throttle, 'THROTTLE', `${Math.round(p.throttle * 100)}%`, false);
   drawBarGauge(ctx, 440, cy - 4, 190, 15, p.fuel / 100, 'FUEL', `${Math.round(p.fuel)}`, p.fuel <= 0);
   drawBarGauge(ctx, 440, cy + 24, 190, 15, p.hull / 100, 'AIRFRAME', `${Math.round(p.hull)}%`, p.hull < 35);
+  // The radar, in the panel gap right of the gauges.
+  drawRadar(ctx, state, world, 862, cy, 46);
   // Mission clock + campaign score, right of the gauges.
   label(ctx, 'MISSION TIME', w - 268, cy - 30, 10.5, 'rgba(190, 220, 245, 0.85)');
   if (m) value(ctx, formatClock(Math.max(0, m.def.timeLimit - m.t)), w - 268, cy - 6, 24, PALETTE.hudText);
@@ -291,5 +417,5 @@ export function drawHud(ctx, state, w, h) {
   label(ctx, `CAMPAIGN ${state.campaignScore}`, w - 118, cy + 46, 12, 'rgba(200, 228, 248, 0.9)');
   if (m && m.def.wind) label(ctx, 'WIND: SE GUSTING', w - 118, cy - 6, 12, PALETTE.hudAmber);
 
-  label(ctx, 'W/S pitch · A/D bank · SHIFT/Q throttle · mouse steers · M mute', 16, h - 8, 10.5, 'rgba(170, 200, 225, 0.55)');
+  label(ctx, 'W/S pitch · A/D bank · SHIFT/Q throttle · F drop · mouse steers · M mute', 16, h - 8, 10.5, 'rgba(170, 200, 225, 0.55)');
 }
