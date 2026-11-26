@@ -3,18 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Skyhaul — Island Courier</title>
+<title>Skyhaul — Island Courier 3D</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #0b1622; overflow: hidden; }
   body { font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
-  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-  canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; background: #79a6d2; cursor: crosshair; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { position: absolute; inset: 0; width: 100vw; height: 100vh; object-fit: contain; display: block; }
+  #gl { background: #79a6d2; }
+  #hud { cursor: crosshair; }
 </style>
 </head>
 <body>
 <div id="stage">
-  <canvas id="game" width="1280" height="800" aria-label="Skyhaul flight game"></canvas>
+  <canvas id="gl" width="1280" height="800" aria-label="Skyhaul 3D view"></canvas>
+  <canvas id="hud" width="1280" height="800" aria-label="Skyhaul instruments"></canvas>
 </div>
+<script src="./vendor/three.min.js"></script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
