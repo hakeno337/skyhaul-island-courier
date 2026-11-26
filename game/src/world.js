@@ -118,7 +118,7 @@ export function buildWorld() {
     if (!clearOf(x, z, 26)) continue;
     const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
     if (n < 0.1 && rng() > 0.24) continue;
-    features.push({ kind: 'tree', x, z, h: 13 + rng() * 10, r: 6.5, seed: rng() });
+    features.push({ kind: 'tree', x, z, h: 13 + rng() * 10, r: 4.6, seed: rng() });
     planted++;
   }
 
@@ -154,6 +154,74 @@ export function buildWorld() {
   for (let i = 0; i < 7; i++) {
     clouds.push(makeCloud(rng, 330 + (rng() - 0.5) * 420, 240 + rng() * 120, -330 + (rng() - 0.5) * 380, 90 + rng() * 60, true));
     clouds.push(makeCloud(rng, -560 + (rng() - 0.5) * 420, 250 + rng() * 120, -760 + (rng() - 0.5) * 380, 90 + rng() * 60, true));
+  }
+
+  // Vegetation pass — its own seeded stream, so the island laid out above
+  // never moves: palms fringe the coast, broadleaf groves thicken inland and
+  // ring the village, and bushes and boulders give the ground its texture.
+  // Everything stays off the runways, the dirt road and the houses, and the
+  // palms and broadleaf carry honest collision radii for low passes.
+  const veg = makeRng(774411);
+  const roadClear = (x, z) => Math.abs((z - 700) - (x + 260) * (-1220 / 1090)) > 58 || x < -310 || x > 870;
+  const houseClear = (x, z) => features.every((f) => f.kind !== 'house' || Math.hypot(x - f.x, z - f.z) > 22);
+  const vegClear = (x, z, pad) => clearOf(x, z, pad) && roadClear(x, z) && houseClear(x, z);
+  const scatter = (want, tries, place) => {
+    let n = 0;
+    for (let i = 0; i < tries && n < want; i++) if (place()) n++;
+  };
+
+  // Palms lean over the sand all round the coast, in noise-clumped stands.
+  scatter(175, 2600, () => {
+    const x = (veg() - 0.5) * 2 * WORLD.islandRx * 1.02;
+    const z = WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 1.02;
+    const f = islandField(x, z);
+    if (f < 0.82 || f > 0.985 || groundHeightAt(x, z) > 8) return false;
+    if (!vegClear(x, z, 24)) return false;
+    if (noise2(x * 0.006 - 4, z * 0.006 + 7) < -0.25 && veg() > 0.3) return false;
+    features.push({ kind: 'palm', x, z, h: 11 + veg() * 5.5, r: 2.6, seed: veg() });
+    return true;
+  });
+
+  // Broadleaf: groves where the forest noise runs, plus a ring at the village.
+  scatter(210, 3200, () => {
+    const nearVillage = veg() < 0.34;
+    const a = veg() * Math.PI * 2;
+    const d = nearVillage ? 80 + veg() * 360 : 0;
+    const x = nearVillage ? PLACES.village.x + Math.cos(a) * d : (veg() - 0.5) * 2 * WORLD.islandRx * 0.97;
+    const z = nearVillage ? PLACES.village.z + Math.sin(a) * d * 0.8 : WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 0.97;
+    if (islandField(x, z) > 0.96 || groundHeightAt(x, z) > 10) return false;
+    if (!vegClear(x, z, 30)) return false;
+    const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
+    if (!nearVillage && n < 0.05 && veg() > 0.3) return false;
+    features.push({ kind: 'tree', x, z, h: 12 + veg() * 7.5, r: 4.4, seed: veg() });
+    return true;
+  });
+
+  // Bushes on the lowland and boulders on the slopes: low ground texture.
+  scatter(150, 1500, () => {
+    const x = (veg() - 0.5) * 2 * WORLD.islandRx * 0.99;
+    const z = WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 0.99;
+    if (islandField(x, z) > 0.99 || groundHeightAt(x, z) > 10) return false;
+    if (!vegClear(x, z, 14)) return false;
+    features.push({ kind: 'bush', x, z, h: 1.7 + veg() * 1.3, r: 1.1, seed: veg() });
+    return true;
+  });
+  scatter(46, 900, () => {
+    const x = (veg() - 0.5) * 2 * WORLD.islandRx * 0.99;
+    const z = WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 0.99;
+    const gh = groundHeightAt(x, z);
+    if (islandField(x, z) > 0.99 || gh < 6 || gh > 120) return false;
+    if (!vegClear(x, z, 14)) return false;
+    const h = 2 + veg() * 3.4;
+    features.push({ kind: 'rocklet', x, z, h, r: h * 0.55, seed: veg() });
+    return true;
+  });
+
+  // Final sweep: nothing grows in the road, whoever planted it there.
+  const onRoad = (x, z) => Math.abs((z - 700) - (x + 260) * (-1220 / 1090)) < 58 && x > -310 && x < 870;
+  for (let i = features.length - 1; i >= 0; i--) {
+    const f = features[i];
+    if ((f.kind === 'tree' || f.kind === 'palm' || f.kind === 'bush' || f.kind === 'rocklet') && onRoad(f.x, f.z)) features.splice(i, 1);
   }
 
   return { tiles, features, clouds, runways: RUNWAYS };

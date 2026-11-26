@@ -211,24 +211,165 @@ function drawMountain(ctx, proj, m, cam) {
   }
 }
 
+// Distance fog for the upright sprites, on the same curve the mountains use.
+function fogFor(depth) {
+  return clamp((depth - 800) / 1400, 0, 0.7);
+}
+
+// Vegetation sprites are painted once into offscreen canvases — a few seed
+// variants × a few fog bands — then blitted with drawImage each frame, so a
+// hillside of trees costs image draws, not thousands of path fills.
+const spriteCache = new Map();
+const FOG_BANDS = 6;
+function vegSprite(kind, variant, fog, paint, small) {
+  const band = Math.round((fog / 0.7) * (FOG_BANDS - 1));
+  const key = `${kind}|${variant}|${band}|${small ? 's' : 'l'}`;
+  let c = spriteCache.get(key);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = small ? 96 : 320;
+    c.height = small ? 77 : 256;
+    const g = c.getContext('2d');
+    if (small) g.scale(96 / 320, 77 / 256);
+    paint(g, variant, (band / (FOG_BANDS - 1)) * 0.7);
+    spriteCache.set(key, c);
+  }
+  return c;
+}
+// Deterministic per-variant jitter for the sprite painters.
+function variantRand(variant, n) {
+  const s = Math.sin(variant * 127.1 + n * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// Paint a broadleaf in sprite space: ground centre (160, 256), height 256.
+function paintTree(g, variant, fog) {
+  const seed = variantRand(variant, 0);
+  const shade = 0.86 + variantRand(variant, 1) * 0.24;
+  const wPx = 256 * (0.82 + seed * 0.2);
+  const tw = Math.max(2, wPx * 0.07);
+  g.fillStyle = shadeColor('#6b4a2c', shade, fog, PALETTE.fog);
+  g.beginPath();
+  g.moveTo(160 - tw, 256);
+  g.lineTo(160 - tw * 0.55, 256 - 256 * 0.42);
+  g.lineTo(160 + tw * 0.55, 256 - 256 * 0.42);
+  g.lineTo(160 + tw, 256);
+  g.closePath(); g.fill();
+  const crown = (dx, dy, rx, ry, hex) => {
+    g.fillStyle = shadeColor(hex, shade, fog, PALETTE.fog);
+    g.beginPath();
+    g.ellipse(160 + dx, 256 + dy, rx, ry, 0, 0, Math.PI * 2);
+    g.fill();
+  };
+  crown(0, -256 * 0.52, wPx * 0.52, 256 * 0.30, '#256b31');
+  crown(-wPx * 0.14, -256 * 0.66, wPx * 0.42, 256 * 0.27, PALETTE.forest);
+  crown(wPx * 0.10, -256 * 0.79, wPx * 0.30, 256 * 0.20, '#3f9e4d');
+}
+
 function drawTree(ctx, proj, f) {
   const base = proj(f.x, groundHeightAt(f.x, f.z), f.z);
   if (!base) return;
   const hPx = f.h * base.scale;
-  const wPx = hPx * 0.62;
-  ctx.fillStyle = 'rgba(60, 42, 26, 1)';
-  ctx.fillRect(base.x - Math.max(1, wPx * 0.05), base.y - hPx * 0.3, Math.max(1.6, wPx * 0.1), hPx * 0.3);
-  const greens = ['#2e7a3c', '#359047', '#27703a'];
-  for (let i = 0; i < 3; i++) {
-    const y0 = base.y - hPx * (0.24 + i * 0.24);
-    const wdt = wPx * (1 - i * 0.26);
-    ctx.fillStyle = greens[(i + Math.floor(f.seed * 3)) % 3];
-    ctx.beginPath();
-    ctx.moveTo(base.x - wdt / 2, y0);
-    ctx.lineTo(base.x, y0 - hPx * 0.34);
-    ctx.lineTo(base.x + wdt / 2, y0);
-    ctx.closePath(); ctx.fill();
+  if (hPx < 1.5 || base.x < -90 || base.x > VIEW.width + 90 || base.y < -90) return;
+  const img = vegSprite('tree', Math.floor(f.seed * 4) % 4, fogFor(base.depth), paintTree, hPx < 26);
+  const wPx = hPx * 1.25;
+  ctx.drawImage(img, base.x - wPx / 2, base.y - hPx, wPx, hPx);
+}
+
+// Paint a palm in sprite space: curved stem, drooping fronds, coconuts.
+// The crown sits below the canvas top so the fronds' rise is never clipped.
+function paintPalm(g, variant, fog) {
+  const seed = variantRand(variant, 5);
+  const shade = 0.88 + variantRand(variant, 6) * 0.2;
+  const crownY = 256 * 0.16;
+  const lean = (seed - 0.5) * 256 * 0.45;
+  const topX = 160 + lean;
+  const topY = crownY;
+  g.strokeStyle = shadeColor('#8a6a44', shade, fog, PALETTE.fog);
+  g.lineCap = 'round';
+  let px = 160;
+  let py = 256;
+  for (let i = 1; i <= 3; i++) {
+    const t = i / 3;
+    const nx = 160 + lean * t * t;
+    const ny = 256 - (256 - crownY) * t;
+    g.lineWidth = Math.max(2, 256 * 0.075 * (1 - t * 0.45));
+    g.beginPath(); g.moveTo(px, py); g.lineTo(nx, ny); g.stroke();
+    px = nx; py = ny;
   }
+  const spread = 256 * (0.46 + seed * 0.1);
+  g.lineWidth = Math.max(2, 256 * 0.045);
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + seed * 2.4;
+    const ex = topX + Math.cos(a) * spread;
+    const ey = topY + Math.abs(Math.sin(a)) * spread * 0.18 + spread * 0.3;
+    const mx = topX + Math.cos(a) * spread * 0.5;
+    const my = topY - spread * (0.16 + 0.08 * Math.sin(seed * 9 + i));
+    g.strokeStyle = shadeColor(i % 2 ? '#2e7a3c' : '#3f9e4d', shade, fog, PALETTE.fog);
+    g.beginPath();
+    g.moveTo(topX, topY);
+    g.quadraticCurveTo(mx, my, ex, ey);
+    g.stroke();
+  }
+  g.fillStyle = shadeColor('#7a5a30', shade, fog, PALETTE.fog);
+  const nut = Math.max(2, 256 * 0.05);
+  g.beginPath();
+  g.arc(topX - nut, topY + nut * 0.8, nut, 0, Math.PI * 2);
+  g.arc(topX + nut * 0.9, topY + nut, nut * 0.85, 0, Math.PI * 2);
+  g.fill();
+}
+
+function drawPalm(ctx, proj, f) {
+  const base = proj(f.x, groundHeightAt(f.x, f.z), f.z);
+  if (!base) return;
+  const hPx = f.h * base.scale;
+  if (hPx < 1.5 || base.x < -90 || base.x > VIEW.width + 90 || base.y < -90) return;
+  const img = vegSprite('palm', Math.floor(f.seed * 4) % 4, fogFor(base.depth), paintPalm, hPx < 26);
+  const wPx = hPx * 1.25;
+  ctx.drawImage(img, base.x - wPx / 2, base.y - hPx, wPx, hPx);
+}
+
+// A low bush: two overlapping domes of leaf.
+function drawBush(ctx, proj, f) {
+  const base = proj(f.x, groundHeightAt(f.x, f.z), f.z);
+  if (!base || base.depth > 850) return;
+  const hPx = f.h * base.scale;
+  if (hPx < 1.2 || base.x < -40 || base.x > VIEW.width + 40 || base.y < -40) return;
+  const fog = fogFor(base.depth);
+  const shade = 0.85 + f.seed * 0.25;
+  ctx.fillStyle = shadeColor('#256b31', shade, fog, PALETTE.fog);
+  ctx.beginPath();
+  ctx.ellipse(base.x, base.y - hPx * 0.4, hPx * 1.15, hPx * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = shadeColor('#359047', shade, fog, PALETTE.fog);
+  ctx.beginPath();
+  ctx.ellipse(base.x - hPx * 0.3, base.y - hPx * 0.62, hPx * 0.7, hPx * 0.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// A boulder: a two-face rock chip, shaded like the mountain faces.
+function drawRocklet(ctx, proj, f) {
+  const base = proj(f.x, groundHeightAt(f.x, f.z), f.z);
+  if (!base || base.depth > 850) return;
+  const hPx = f.h * base.scale;
+  if (hPx < 1.2 || base.x < -40 || base.x > VIEW.width + 40 || base.y < -40) return;
+  const fog = fogFor(base.depth);
+  const wPx = hPx * (1.1 + f.seed * 0.5);
+  const shade = 0.85 + f.seed * 0.25;
+  ctx.fillStyle = shadeColor(PALETTE.rock, shade, fog, PALETTE.fog);
+  ctx.beginPath();
+  ctx.moveTo(base.x - wPx / 2, base.y);
+  ctx.lineTo(base.x - wPx * 0.18, base.y - hPx);
+  ctx.lineTo(base.x + wPx * 0.3, base.y - hPx * 0.72);
+  ctx.lineTo(base.x + wPx / 2, base.y);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = shadeColor(PALETTE.rock, shade * 0.74, fog, PALETTE.fog);
+  ctx.beginPath();
+  ctx.moveTo(base.x - wPx * 0.18, base.y - hPx);
+  ctx.lineTo(base.x + wPx * 0.3, base.y - hPx * 0.72);
+  ctx.lineTo(base.x + wPx * 0.12, base.y);
+  ctx.lineTo(base.x - wPx * 0.05, base.y);
+  ctx.closePath(); ctx.fill();
 }
 
 function drawHouse(ctx, proj, f, hangar) {
@@ -540,6 +681,9 @@ export function drawScene(ctx, state, world, w, h) {
   for (const dr of drawables) {
     if (dr.kind === 'mountain') drawMountain(ctx, proj, dr.o, cam);
     else if (dr.kind === 'tree') drawTree(ctx, proj, dr.o);
+    else if (dr.kind === 'palm') drawPalm(ctx, proj, dr.o);
+    else if (dr.kind === 'bush') drawBush(ctx, proj, dr.o);
+    else if (dr.kind === 'rocklet') drawRocklet(ctx, proj, dr.o);
     else if (dr.kind === 'house') drawHouse(ctx, proj, dr.o, false);
     else if (dr.kind === 'hangar') drawHouse(ctx, proj, dr.o, true);
     else if (dr.kind === 'lighthouse') drawLighthouse(ctx, proj, dr.o, state.time);

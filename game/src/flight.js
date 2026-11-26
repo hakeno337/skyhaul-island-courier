@@ -119,7 +119,8 @@ export function stepPlane(plane, controls, world, dt) {
         plane.hull -= 12; plane.speed = 0; plane.y = hit.h;
         ev.clipped = hit.kind;
       } else {
-        ev.crashed = `You flew into the ${hit.kind === 'tree' ? 'trees' : hit.kind}.`;
+        const what = { tree: 'trees', palm: 'palms', bush: 'bushes', rocklet: 'rocks' }[hit.kind] || hit.kind;
+        ev.crashed = `You flew into the ${what}.`;
         return ev;
       }
     }
