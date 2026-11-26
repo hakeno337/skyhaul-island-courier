@@ -1,6 +1,6 @@
-// Skyhaul — the screens that frame the flying: a title screen over a slow
+// Skyhaul 3D — the screens that frame the flying: a title screen over a slow
 // orbit of the island, and the results / failure / crash panels that close
-// a sortie. All of them share one house style: dark glass, amber headings.
+// a sortie. All share one house style: dark glass, amber headings.
 
 import { PALETTE } from './config.js';
 import { MISSIONS } from './missions.js';

@@ -1,6 +1,7 @@
-// Skyhaul — keyboard and mouse input.
-// Keyboard is primary; the mouse steers whenever it moves away from screen centre,
-// and the wheel trims the throttle. readControls() blends both into one set of axes.
+// Skyhaul 3D — keyboard and mouse input.
+// Keyboard is primary; the mouse steers whenever it moves away from screen
+// centre, and the wheel trims the throttle. readControls() blends both into
+// one set of axes for the flight model.
 
 import { clamp } from './config.js';
 
@@ -41,7 +42,7 @@ export function createInput(canvas) {
   return input;
 }
 
-// One frame of pilot intent: pitch/roll in -1..1, throttle nudges, and action keys.
+// One frame of pilot intent: pitch/roll in -1..1, throttle nudges, action keys.
 export function readControls(input) {
   const k = input.keys;
   const has = (...codes) => codes.some((c) => k.has(c));
@@ -75,10 +76,4 @@ export function readControls(input) {
     drop: has('KeyF'),
     retry: has('KeyR'),
   };
-}
-
-export function consumeClick(input) {
-  const was = input.clicked;
-  input.clicked = false;
-  return was;
 }

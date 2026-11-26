@@ -1,7 +1,7 @@
-// Skyhaul — the HUD and the lit instrument panel. A compass tape up top,
-// altitude and speed blocks in the corners, a mission card, and a bottom
-// dashboard of real gauges: airspeed, altimeter, attitude ball, fuel, hull.
-
+// Skyhaul 3D — the HUD and the lit instrument panel, drawn on a 2D overlay
+// canvas above the WebGL view. A compass tape up top, altitude and speed
+// blocks in the corners, a mission card, and a bottom dashboard of real
+// gauges: airspeed, altimeter, attitude ball, fuel, hull — plus the radar.
 import { PALETTE, DEG, WORLD, clamp } from './config.js';
 import { RUNWAYS, PLACES, coastlinePoints } from './world.js';
 import { formatClock } from './missions.js';

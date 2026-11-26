@@ -1,6 +1,7 @@
-// Skyhaul — the Kestrel's flight model. Arcade physics with real teeth:
-// a stall that drops the nose, an overspeed that shakes the airframe apart,
-// fuel that burns faster the harder you push, and landings judged by sink rate.
+// Skyhaul 3D — the Kestrel's flight model, carried over from the 2D game
+// untouched: an arcade model with real teeth. A stall that drops the nose,
+// an overspeed that shakes the airframe apart, fuel that burns faster the
+// harder you push, and landings judged by sink rate.
 
 import { PHYS, DEG, clamp } from './config.js';
 import { groundHeightAt, featureHit, onRunway, RUNWAYS } from './world.js';

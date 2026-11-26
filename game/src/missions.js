@@ -1,7 +1,7 @@
-// Skyhaul — the four sorties. Each mission is a different kind of flying:
-// a ring circuit against the clock, a delivery that ends in a landing on a
-// short dirt strip, a storm patrol through checkpoints in gusting wind, and
-// a low-level rescue drop over the sea.
+// Skyhaul 3D — the four sorties, the same missions as the 2D game: a ring
+// circuit against the clock, a delivery that ends in a landing on a short
+// dirt strip, a storm patrol through checkpoints in gusting wind, and a
+// low-level rescue drop over the sea. Same goals, same scoring shape.
 
 import { SCORE } from './config.js';
 import { RUNWAYS, PLACES } from './world.js';

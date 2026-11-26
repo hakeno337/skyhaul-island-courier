@@ -1,29 +1,33 @@
-// Skyhaul — Island Courier: boot and the game loop.
-// One state object, four screens (title, fly, done/failed, crashed), a fixed
-// renderer, and the mission layer in between. No network, no storage, no fuss.
+// Skyhaul 3D — Island Courier: boot and the game loop.
+// One state object, four screens (title, fly, done/failed, crashed), the
+// Three.js scene below and the instrument overlay above it. The flight
+// model and missions are the 2D game's own; only the renderer is new.
+// No network, no storage, no fuss.
 
 import { VIEW } from './config.js';
 import { buildWorld, RUNWAYS } from './world.js';
 import { createInput, readControls } from './input.js';
 import { createPlane, resetPlane, stepPlane } from './flight.js';
 import { MISSIONS, startMission, stepMission } from './missions.js';
-import { createCamera, updateCamera, drawScene } from './render.js';
+import { createScene3D } from './scene.js';
 import { drawHud } from './hud.js';
 import { drawTitle, drawResults, drawFailed, drawCrashed, titleMissionAt } from './screens.js';
 import { stageShot } from './shots.js';
 import { unlockAudio, sfx } from './audio.js';
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const input = createInput(canvas);
+const glCanvas = document.getElementById('gl');
+const hudCanvas = document.getElementById('hud');
+const htx = hudCanvas.getContext('2d');
+const input = createInput(hudCanvas);
 const world = buildWorld();
+const view3d = createScene3D(glCanvas, world);
 
 const state = {
   screen: 'title',
   time: 0,
   frozen: false,
+  snapCam: false,
   plane: createPlane(),
-  camera: createCamera(),
   mission: null,
   missionIndex: 0,
   result: null,
@@ -35,6 +39,9 @@ resetPlane(state.plane, RUNWAYS[0]);
 
 const shotName = new URLSearchParams(location.search).get('shot');
 if (shotName) stageShot(state, shotName);
+
+// A handle for automated playtests (and curious pilots in devtools).
+window.__skyhaul = { state, world, view: view3d };
 
 function endSortieCrash(reason, ditched) {
   const m = state.mission;
@@ -99,17 +106,17 @@ function step(dt) {
     else if (input.keys.has('KeyT')) { state.screen = 'title'; state.mission = null; }
   }
   input.clicked = false;
-  updateCamera(state, dt);
 }
 
-function frame() {
-  ctx.clearRect(0, 0, VIEW.width, VIEW.height);
-  drawScene(ctx, state, world, VIEW.width, VIEW.height);
-  if (state.screen === 'fly') drawHud(ctx, state, world, VIEW.width, VIEW.height);
-  else if (state.screen === 'title') drawTitle(ctx, state, VIEW.width, VIEW.height);
-  else if (state.screen === 'done') drawResults(ctx, state, VIEW.width, VIEW.height);
-  else if (state.screen === 'failed') drawFailed(ctx, state, VIEW.width, VIEW.height);
-  else if (state.screen === 'crashed') drawCrashed(ctx, state, VIEW.width, VIEW.height);
+function frame(dt) {
+  view3d.render(state, dt, state.snapCam);
+  state.snapCam = false;
+  htx.clearRect(0, 0, VIEW.width, VIEW.height);
+  if (state.screen === 'fly') drawHud(htx, state, world, VIEW.width, VIEW.height);
+  else if (state.screen === 'title') drawTitle(htx, state, VIEW.width, VIEW.height);
+  else if (state.screen === 'done') drawResults(htx, state, VIEW.width, VIEW.height);
+  else if (state.screen === 'failed') drawFailed(htx, state, VIEW.width, VIEW.height);
+  else if (state.screen === 'crashed') drawCrashed(htx, state, VIEW.width, VIEW.height);
 }
 
 let last = performance.now();
@@ -117,7 +124,7 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
   if (!state.frozen) step(dt);
-  frame();
+  frame(state.frozen ? 0 : dt);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

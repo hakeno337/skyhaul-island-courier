@@ -1,32 +1,32 @@
-// Skyhaul — tiny WebAudio event sounds. No audio files: every blip is an
-// oscillator envelope, created lazily on the first pilot input so the browser
-// never blocks it. M fails silent and stays silent.
+// Skyhaul 3D — tiny WebAudio event sounds. No audio files: every blip is an
+// oscillator envelope, created lazily on the first pilot input so the
+// browser never blocks it. M mutes and stays muted.
 
-let ctx = null;
+let actx = null;
 let muted = false;
 
 export function unlockAudio() {
-  if (ctx) return;
+  if (actx) return;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) ctx = new AC();
+    if (AC) actx = new AC();
   } catch {
-    ctx = null;
+    actx = null;
   }
 }
 
 function tone(freqA, freqB, seconds, type, gainPeak, when = 0) {
-  if (!ctx || muted) return;
-  const t0 = ctx.currentTime + when;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
+  if (!actx || muted) return;
+  const t0 = actx.currentTime + when;
+  const osc = actx.createOscillator();
+  const gain = actx.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freqA, t0);
   osc.frequency.exponentialRampToValueAtTime(Math.max(freqB, 1), t0 + seconds);
   gain.gain.setValueAtTime(0, t0);
   gain.gain.linearRampToValueAtTime(gainPeak, t0 + 0.012);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + seconds);
-  osc.connect(gain).connect(ctx.destination);
+  osc.connect(gain).connect(actx.destination);
   osc.start(t0);
   osc.stop(t0 + seconds + 0.05);
 }

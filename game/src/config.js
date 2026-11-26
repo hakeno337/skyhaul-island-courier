@@ -1,18 +1,19 @@
-// Skyhaul — Island Courier: shared tuning constants and the house palette.
-// Every module reads its numbers from here so the game can be balanced in one place.
+// Skyhaul 3D — shared tuning constants and the house palette.
+// The numbers are the 2D game's own, carried over unchanged: same stall,
+// same overspeed, same fuel burn, so the 3D rebuild flies like the original.
+// Every module reads its numbers from here so the game balances in one place.
 
 export const VIEW = {
   width: 1280,
   height: 800,
-  fovDeg: 63,          // vertical field of view of the chase camera
-  camBack: 27,         // metres behind the aircraft
-  camUp: 10.5,         // metres above the aircraft
-  viewDistance: 2100,  // metres; ground and features fade out before this
+  fovDeg: 60,          // vertical field of view of the chase camera
+  camBack: 24,         // metres behind the aircraft
+  camUp: 9.5,          // metres above the aircraft
+  viewDistance: 4200,  // fog far plane, metres
 };
 
 export const WORLD = {
-  size: 5200,          // the sea is a square this many metres across
-  tile: 130,           // ground tile edge, metres
+  size: 5200,          // the terrain square, metres across
   islandCx: 0,
   islandCz: -80,
   islandRx: 1560,      // island ellipse radii, metres
@@ -38,7 +39,7 @@ export const PHYS = {
   climbSink: 0.92,     // share of pitch that becomes vertical speed
   gravitySink: 3.1,    // m/s of sink the plane always fights
   stallSink: 15,       // extra m/s of sink at a full stall
-  hardLandingSink: 3.4,  // m/s of sink a landing gear shrug off
+  hardLandingSink: 3.4,  // m/s of sink a landing gear shrugs off
   crashSink: 6.5,      // m/s of sink that wrecks the aircraft
   groundRoll: 0.35,    // throttle response smoothing on the ground
 };
@@ -61,16 +62,16 @@ export const PALETTE = {
   skyMid: '#7fb0dd',
   skyHorizon: '#ffd9a3',
   sunCore: '#fff3c4',
-  sunGlow: 'rgba(255, 190, 92, 0.35)',
-  fog: '#cfdde8',
+  fog: '#dfc493',
   sea: '#1e6d8c',
-  seaDeep: '#175a76',
+  seaDeep: '#14506b',
   sand: '#ecd9a0',
   grassA: '#63ad4b',
-  grassB: '#54963f',
+  grassB: '#4f9a3e',
   fieldA: '#c9b96a',
   fieldB: '#b3a355',
   forest: '#2e7a3c',
+  forestB: '#3c8a46',
   rock: '#8d8175',
   snow: '#f2f6f6',
   road: '#6e6257',
@@ -78,9 +79,7 @@ export const PALETTE = {
   runwayLine: '#f5f2e6',
   dirtStrip: '#b99a67',
   cloudLit: '#ffffff',
-  cloudShade: '#b9c9d9',
   stormLit: '#5d6b7a',
-  stormShade: '#39434f',
   planeBody: '#f4f1e8',
   planeStripe: '#ff7a1a',
   planeTeal: '#0f7d8c',

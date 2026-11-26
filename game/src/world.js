@@ -1,8 +1,11 @@
-// Skyhaul — the island of Teluk Emas: terrain tiles, mountains, the main
-// airfield, a village with a dirt strip, a lighthouse, forests and clouds.
-// Everything is generated from one seed so every pilot flies the same island.
+// Skyhaul 3D — the island of Teluk Emas as data: a height field the terrain
+// mesh and the flight model share, the two strips, the village, the
+// lighthouse, forests and clouds. Everything is generated from one seed so
+// every pilot flies the same island. The layout is the 2D game's own; what
+// is new is that the ground now has real height everywhere, not just under
+// the mountains.
 
-import { WORLD, PALETTE, clamp } from './config.js';
+import { WORLD, PALETTE, clamp, lerp } from './config.js';
 
 // Small deterministic RNG (mulberry32) so the island never changes shape.
 export function makeRng(seed) {
@@ -16,7 +19,7 @@ export function makeRng(seed) {
 }
 
 // Cheap value noise from sines; smooth enough for coastlines and woods.
-function noise2(x, z) {
+export function noise2(x, z) {
   return (
     Math.sin(x * 1.7 + z * 0.6) * 0.45 +
     Math.sin(x * 0.53 - z * 1.31) * 0.35 +
@@ -24,20 +27,17 @@ function noise2(x, z) {
   );
 }
 
+// Deterministic 0..1 hash of a point, for per-vertex colour jitter.
+function hash2(x, z) {
+  const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
 export const MOUNTAINS = [
   { x: -980, z: -1020, h: 305, r: 450 },
   { x: -540, z: -1240, h: 235, r: 340 },
   { x: -1300, z: -640, h: 205, r: 310 },
 ];
-
-export function groundHeightAt(x, z) {
-  let h = 0;
-  for (const m of MOUNTAINS) {
-    const d = Math.hypot(x - m.x, z - m.z);
-    if (d < m.r) h = Math.max(h, m.h * Math.pow(1 - d / m.r, 1.35));
-  }
-  return h;
-}
 
 // Normalised island distance: <1 is land, with a noisy rim.
 export function islandField(x, z) {
@@ -48,7 +48,7 @@ export function islandField(x, z) {
 
 // The coastline as a closed loop of points where the island field crosses 1,
 // found by walking a ray out from the island centre in every direction. One
-// computation, cached: the foam line and the radar both draw from it.
+// computation, cached: the radar draws from it.
 let coastCache = null;
 export function coastlinePoints(steps = 128) {
   if (coastCache) return coastCache;
@@ -96,49 +96,102 @@ export const PLACES = {
   harbour: { x: 420, z: 1180 },
 };
 
-function tileType(x, z, rng) {
+// --- The height field -------------------------------------------------------
+// Raw landform: a low dome over the island ellipse, two octaves of rolling
+// noise for hills, the three mountain cones of the 2D island on top, and a
+// seabed that shelves away under the water.
+function rawHeight(x, z) {
   const f = islandField(x, z);
+  let h;
   if (f >= 1) {
-    // Sea: deeper (darker) further from shore, with a pale shelf at the rim.
-    return { type: 'sea', color: f > 1.16 ? PALETTE.seaDeep : PALETTE.sea, shade: 0.94 + rng() * 0.1 };
+    h = -5 - Math.min(24, (f - 1) * 55);
+  } else {
+    const t = 1 - f;
+    h = 30 * Math.pow(t, 1.3);
+    h += noise2(x * 0.0016 + 3.1, z * 0.0016 - 1.4) * 10 * Math.min(1, t * 1.7);
+    h += noise2(x * 0.006 - 7.7, z * 0.006 + 2.2) * 2.4 * Math.min(1, t * 2.5);
   }
-  const gh = groundHeightAt(x, z);
-  if (gh > 12) return { type: 'rock', color: gh > 205 ? PALETTE.snow : PALETTE.rock, shade: 0.9 + rng() * 0.18 };
-  if (f > 0.94) return { type: 'sand', color: PALETTE.sand, shade: 0.95 + rng() * 0.08 };
-  // A dirt road runs from the main field toward the village.
-  const roadD = Math.abs((z - 700) - (x + 260) * (-1220 / 1090));
-  if (roadD < 55 && x > -300 && x < 860) return { type: 'road', color: PALETTE.road, shade: 0.92 + rng() * 0.1 };
-  const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
-  if (n > 0.34) return { type: 'forest', color: PALETTE.forest, shade: 0.88 + rng() * 0.16 };
-  if (z > 260 && n < -0.05) return { type: 'field', color: rng() > 0.5 ? PALETTE.fieldA : PALETTE.fieldB, shade: 0.92 + rng() * 0.12 };
-  return { type: 'grass', color: rng() > 0.5 ? PALETTE.grassA : PALETTE.grassB, shade: 0.92 + rng() * 0.13 };
+  for (const m of MOUNTAINS) {
+    const d = Math.hypot(x - m.x, z - m.z);
+    if (d < m.r) h = Math.max(h, m.h * Math.pow(1 - d / m.r, 1.35));
+  }
+  return h;
 }
 
+function smoothstep(a, b, x) {
+  const t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+// Runways and the village sit on pads graded flat into the landform; the
+// pads' elevations are the raw height at their centres.
+const RWY_ELEV = RUNWAYS.map((r) => rawHeight(r.cx, r.cz));
+const VILLAGE_ELEV = rawHeight(PLACES.village.x, PLACES.village.z);
+export const runwayElev = (i) => RWY_ELEV[i];
+
+// The one true ground height: physics, terrain mesh and feature placement
+// all read this, so they can never disagree about where the ground is.
+export function groundHeightAt(x, z) {
+  let h = rawHeight(x, z);
+  RUNWAYS.forEach((r, i) => {
+    const l = runwayLocal(r, x, z);
+    const wA = 1 - smoothstep(r.width / 2 + 6, r.width / 2 + 95, Math.abs(l.across));
+    const wL = 1 - smoothstep(r.length / 2 + 10, r.length / 2 + 130, Math.abs(l.along));
+    const w = wA * wL;
+    if (w > 0) h = lerp(h, RWY_ELEV[i], w);
+  });
+  const dv = Math.hypot(x - PLACES.village.x, z - PLACES.village.z);
+  const wv = (1 - smoothstep(130, 250, dv)) * 0.9;
+  if (wv > 0) h = lerp(h, VILLAGE_ELEV, wv);
+  return h;
+}
+
+// The terrain's colour at a point, following the 2D island's tile rules:
+// deep water, sand rim, grass and field patchwork, dark forest where the
+// woods noise runs, rock and snow up high. h is groundHeightAt(x, z).
+export function surfaceColor(x, z, h) {
+  const f = islandField(x, z);
+  const j = 0.93 + hash2(Math.round(x / 7), Math.round(z / 7)) * 0.12;
+  if (f >= 1) return vary(h < -13 ? PALETTE.seaDeep : PALETTE.sea, j * 0.9);
+  if (h > 200) return vary(PALETTE.snow, j);
+  if (h > 55) return vary(PALETTE.rock, j);
+  if (f > 0.945) return vary(PALETTE.sand, j);
+  const roadD = Math.abs((z - 700) - (x + 260) * (-1220 / 1090));
+  if (roadD < 26 && x > -300 && x < 860) return vary(PALETTE.road, j);
+  const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
+  if (n > 0.34) return vary(hash2(x, z) > 0.5 ? PALETTE.forest : PALETTE.forestB, j);
+  // Field patchwork: the 2D island's southern fields, plus scattered
+  // clearings wherever the slow patch noise dips.
+  const patch = noise2(x * 0.0013 + 21, z * 0.0013 - 13);
+  if ((z > 260 && n < -0.05) || patch < -0.52) return vary(hash2(x + 40, z) > 0.5 ? PALETTE.fieldA : PALETTE.fieldB, j);
+  return vary(patch > 0.12 ? PALETTE.grassA : PALETTE.grassB, j);
+}
+
+// Multiply a #rrggbb colour by a scalar shade, returned as #rrggbb.
+export function vary(hex, mul) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = clamp(Math.round(((n >> 16) & 255) * mul), 0, 255);
+  const g = clamp(Math.round(((n >> 8) & 255) * mul), 0, 255);
+  const b = clamp(Math.round((n & 255) * mul), 0, 255);
+  return `rgb(${r},${g},${b})`;
+}
+
+// --- The built world: features and clouds, placed by the 2D game's rules ---
 export function buildWorld() {
   const rng = makeRng(20261126);
-  const tiles = [];
-  const half = WORLD.size / 2;
-  for (let gx = -half; gx < half; gx += WORLD.tile) {
-    for (let gz = -half; gz < half; gz += WORLD.tile) {
-      const cx = gx + WORLD.tile / 2;
-      const cz = gz + WORLD.tile / 2;
-      const t = tileType(cx, cz, rng);
-      tiles.push({ x: cx, z: cz, type: t.type, color: t.color, shade: t.shade });
-    }
-  }
-
   const features = [];
   const clearOf = (x, z, pad) => RUNWAYS.every((r) => {
     const l = runwayLocal(r, x, z);
     return Math.abs(l.across) > r.width / 2 + pad || Math.abs(l.along) > r.length / 2 + pad;
   });
 
-  // Forests: palm-and-pine blobs wherever the tile map says forest or grass.
+  // Forest trees wherever the woods noise runs or the grass is open.
   let planted = 0;
-  while (planted < 300) {
+  let guard = 0;
+  while (planted < 300 && guard++ < 20000) {
     const x = (rng() - 0.5) * 2 * WORLD.islandRx * 0.98;
     const z = WORLD.islandCz + (rng() - 0.5) * 2 * WORLD.islandRz * 0.98;
-    if (islandField(x, z) > 0.97 || groundHeightAt(x, z) > 10) continue;
+    if (islandField(x, z) > 0.97 || groundHeightAt(x, z) > 34) continue;
     if (!clearOf(x, z, 26)) continue;
     const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
     if (n < 0.1 && rng() > 0.24) continue;
@@ -155,7 +208,7 @@ export function buildWorld() {
     if (!clearOf(x, z, 8)) continue;
     features.push({ kind: 'house', x, z, h: 8.5 + rng() * 4.5, r: 10, seed: rng() });
   }
-  // Hangars and a windsock field office at the main airfield.
+  // Hangars and a field office at the main airfield.
   features.push({ kind: 'hangar', x: -390, z: 560, h: 13, r: 17, seed: 0.3 });
   features.push({ kind: 'hangar', x: -395, z: 640, h: 13, r: 17, seed: 0.7 });
   features.push({ kind: 'house', x: -120, z: 1010, h: 9, r: 10, seed: 0.5 });
@@ -199,7 +252,7 @@ export function buildWorld() {
     const x = (veg() - 0.5) * 2 * WORLD.islandRx * 1.02;
     const z = WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 1.02;
     const f = islandField(x, z);
-    if (f < 0.82 || f > 0.985 || groundHeightAt(x, z) > 8) return false;
+    if (f < 0.82 || f > 0.985 || groundHeightAt(x, z) > 9) return false;
     if (!vegClear(x, z, 24)) return false;
     if (noise2(x * 0.006 - 4, z * 0.006 + 7) < -0.25 && veg() > 0.3) return false;
     features.push({ kind: 'palm', x, z, h: 11 + veg() * 5.5, r: 2.6, seed: veg() });
@@ -213,7 +266,7 @@ export function buildWorld() {
     const d = nearVillage ? 80 + veg() * 360 : 0;
     const x = nearVillage ? PLACES.village.x + Math.cos(a) * d : (veg() - 0.5) * 2 * WORLD.islandRx * 0.97;
     const z = nearVillage ? PLACES.village.z + Math.sin(a) * d * 0.8 : WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 0.97;
-    if (islandField(x, z) > 0.96 || groundHeightAt(x, z) > 10) return false;
+    if (islandField(x, z) > 0.96 || groundHeightAt(x, z) > 34) return false;
     if (!vegClear(x, z, 30)) return false;
     const n = noise2(x * 0.004 + 9, z * 0.004 - 3);
     if (!nearVillage && n < 0.05 && veg() > 0.3) return false;
@@ -225,7 +278,7 @@ export function buildWorld() {
   scatter(150, 1500, () => {
     const x = (veg() - 0.5) * 2 * WORLD.islandRx * 0.99;
     const z = WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 0.99;
-    if (islandField(x, z) > 0.99 || groundHeightAt(x, z) > 10) return false;
+    if (islandField(x, z) > 0.99 || groundHeightAt(x, z) > 30) return false;
     if (!vegClear(x, z, 14)) return false;
     features.push({ kind: 'bush', x, z, h: 1.7 + veg() * 1.3, r: 1.1, seed: veg() });
     return true;
@@ -234,7 +287,7 @@ export function buildWorld() {
     const x = (veg() - 0.5) * 2 * WORLD.islandRx * 0.99;
     const z = WORLD.islandCz + (veg() - 0.5) * 2 * WORLD.islandRz * 0.99;
     const gh = groundHeightAt(x, z);
-    if (islandField(x, z) > 0.99 || gh < 6 || gh > 120) return false;
+    if (islandField(x, z) > 0.99 || gh < 6 || gh > 140) return false;
     if (!vegClear(x, z, 14)) return false;
     const h = 2 + veg() * 3.4;
     features.push({ kind: 'rocklet', x, z, h, r: h * 0.55, seed: veg() });
@@ -248,7 +301,7 @@ export function buildWorld() {
     if ((f.kind === 'tree' || f.kind === 'palm' || f.kind === 'bush' || f.kind === 'rocklet') && onRoad(f.x, f.z)) features.splice(i, 1);
   }
 
-  return { tiles, features, clouds, runways: RUNWAYS };
+  return { features, clouds, runways: RUNWAYS };
 }
 
 function makeCloud(rng, x, y, z, s, storm) {
@@ -260,30 +313,17 @@ function makeCloud(rng, x, y, z, s, storm) {
   return { x, y, z, s, storm, puffs };
 }
 
-// First solid thing at this column, if the aircraft is inside it.
+// First solid thing at this column, if the aircraft is inside it. Feature
+// heights are relative to their own ground, so the top is ground + h.
 export function featureHit(world, x, z, y) {
-  if (y > 90) return null;
+  if (y > 140) return null;
   for (const f of world.features) {
     const dx = x - f.x;
     const dz = z - f.z;
-    if (dx * dx + dz * dz < f.r * f.r && y < f.h) return f;
+    if (dx * dx + dz * dz < f.r * f.r) {
+      const top = f.h + groundHeightAt(f.x, f.z);
+      if (y < top) return { ...f, h: top };
+    }
   }
   return null;
-}
-
-export function shadeColor(hex, shade, fogMix, fogHex) {
-  const n = parseInt(hex.slice(1), 16);
-  let r = (n >> 16) & 255;
-  let g = (n >> 8) & 255;
-  let b = n & 255;
-  r = clamp(Math.round(r * shade), 0, 255);
-  g = clamp(Math.round(g * shade), 0, 255);
-  b = clamp(Math.round(b * shade), 0, 255);
-  if (fogMix > 0) {
-    const fn = parseInt(fogHex.slice(1), 16);
-    r = Math.round(r + (((fn >> 16) & 255) - r) * fogMix);
-    g = Math.round(g + (((fn >> 8) & 255) - g) * fogMix);
-    b = Math.round(b + ((fn & 255) - b) * fogMix);
-  }
-  return `rgb(${r},${g},${b})`;
 }
