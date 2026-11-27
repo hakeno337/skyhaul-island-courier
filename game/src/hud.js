@@ -390,12 +390,97 @@ function drawPressures(ctx, state, w, y) {
   }
 }
 
+// Cockpit framing: thin corner brackets around the windscreen area, the
+// visual grammar of a tactical HUD. They frame the 3D view only — the
+// instrument panel below keeps its own edge.
+function drawCornerBrackets(ctx, w, h) {
+  const inset = 10;
+  const arm = 30;
+  const yBot = h - 128;
+  ctx.strokeStyle = 'rgba(170, 220, 255, 0.55)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (const [cx, cy, sx, sy] of [
+    [inset, inset, 1, 1],
+    [w - inset, inset, -1, 1],
+    [inset, yBot, 1, -1],
+    [w - inset, yBot, -1, -1],
+  ]) {
+    ctx.moveTo(cx + sx * arm, cy);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx, cy + sy * arm);
+  }
+  ctx.stroke();
+  ctx.lineWidth = 1;
+}
+
+// A scrolling tape ladder, PFD-style: ticks slide past a fixed centre
+// caret, minor steps unlabelled, major steps numbered, the live value
+// boxed at the centre. Purely presentational — it reads the same numbers
+// the dials and blocks already show.
+function drawTape(ctx, cx, cy, hgt, val, minor, major, pxPerUnit, unit, fmt) {
+  const tw = 56;
+  const x0 = cx - tw / 2;
+  const y0 = cy - hgt / 2;
+  panel(ctx, x0, y0, tw, hgt, 6);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0 + 2, y0 + 2, tw - 4, hgt - 4);
+  ctx.clip();
+  const halfRange = (hgt / 2) / pxPerUnit;
+  const first = Math.floor((val - halfRange) / minor) * minor;
+  ctx.textBaseline = 'middle';
+  for (let v = first; v <= val + halfRange; v += minor) {
+    if (v < 0) continue;
+    const y = cy + (val - v) * pxPerUnit;
+    const isMajor = Math.round(v / major) * major === v;
+    ctx.strokeStyle = isMajor ? 'rgba(230, 245, 255, 0.9)' : 'rgba(200, 228, 248, 0.45)';
+    ctx.lineWidth = isMajor ? 1.6 : 1;
+    ctx.beginPath();
+    ctx.moveTo(x0 + tw - (isMajor ? 15 : 9), y);
+    ctx.lineTo(x0 + tw - 3, y);
+    ctx.stroke();
+    if (isMajor) {
+      ctx.fillStyle = 'rgba(220, 240, 255, 0.85)';
+      ctx.font = `600 10px ${MONO}`;
+      ctx.textAlign = 'left';
+      ctx.fillText(fmt(v), x0 + 5, y);
+    }
+  }
+  ctx.restore();
+  ctx.textBaseline = 'alphabetic';
+  // Centre caret and the boxed live value.
+  ctx.fillStyle = PALETTE.hudAmber;
+  ctx.beginPath();
+  ctx.moveTo(x0 + tw - 1, cy);
+  ctx.lineTo(x0 + tw - 9, cy - 5);
+  ctx.lineTo(x0 + tw - 9, cy + 5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#0d1620';
+  ctx.strokeStyle = PALETTE.hudAmber;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.roundRect(x0 + 4, cy - 11, tw - 8, 22, 4);
+  ctx.fill();
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  value(ctx, fmt(Math.round(val)), cx, cy + 5, 13.5, PALETTE.hudAmber, 'center');
+  label(ctx, unit, cx, y0 + hgt + 13, 9, 'rgba(200, 225, 245, 0.75)', 'center');
+}
+
 export function drawHud(ctx, state, world, w, h) {
   const p = state.plane;
   const m = state.mission;
   const altFt = Math.round(p.y * 3.281);
   const spdKt = Math.round(p.speed * 1.944);
   const vsFpm = Math.round(p.vy * 196.85);
+
+  drawCornerBrackets(ctx, w, h);
+  // Tape ladders flanking the view: airspeed down the left edge, altitude
+  // down the right, under the mission cards.
+  drawTape(ctx, 46, 400, 300, spdKt, 5, 20, 1.6, 'KT', (v) => String(v));
+  drawTape(ctx, w - 46, 548, 200, altFt, 50, 200, 0.14, 'FT', (v) => String(v));
 
   drawCompassTape(ctx, state, w);
 

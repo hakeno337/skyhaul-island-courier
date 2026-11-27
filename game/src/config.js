@@ -68,15 +68,16 @@ export const CAMPAIGN = {
   reg: 'SK-417',
 };
 
-// Golden-hour tropical palette; sky, sea and land all live in this family.
+// Dusk-grade tropical palette: the sun sits low, the sky runs deep indigo
+// to amber, and sky, sea and land all live in that warmer family.
 export const PALETTE = {
-  skyTop: '#2f6cb3',
-  skyMid: '#7fb0dd',
-  skyHorizon: '#ffd9a3',
+  skyTop: '#16294a',
+  skyMid: '#597aa6',
+  skyHorizon: '#ff9e4a',
   sunCore: '#fff3c4',
-  fog: '#dfc493',
-  sea: '#1e6d8c',
-  seaDeep: '#14506b',
+  fog: '#d3a276',
+  sea: '#175d7c',
+  seaDeep: '#0f435c',
   sand: '#ecd9a0',
   grassA: '#63ad4b',
   grassB: '#4f9a3e',

@@ -3,15 +3,17 @@
 // the flight model, missions and HUD stay exactly as the 2D game had them,
 // this module only reads their state and draws it in three dimensions.
 
-import { VIEW, WORLD, PALETTE, clamp, lerp } from './config.js';
+import { VIEW, WORLD, PALETTE, CAMPAIGN, clamp, lerp } from './config.js';
 import { groundHeightAt, surfaceColor, islandField, RUNWAYS, PLACES, runwayElev, makeRng } from './world.js';
 import { MISSIONS } from './missions.js';
 
 const THREE = window.THREE;
 
-// The sun: low in the east-north-east, warm. Light, sky shader and the sun
-// disc all read this one direction so they can never disagree.
-const SUN_DIR = new THREE.Vector3(0.58, 0.36, -0.55).normalize();
+// The sun: low in the east-north-east, warm — a dusk sun, near enough the
+// horizon that the sea throws a long glint path back at it. Light, sky
+// shader and the sun disc all read this one direction so they can never
+// disagree.
+const SUN_DIR = new THREE.Vector3(0.62, 0.19, -0.52).normalize();
 
 function hexColor(hex) { return new THREE.Color(hex); }
 
@@ -29,7 +31,7 @@ export function createScene3D(canvas, world) {
   renderer.setPixelRatio(1);
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 1.07;
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(hexColor(PALETTE.fog), 1000, 5000);
@@ -46,6 +48,9 @@ export function createScene3D(canvas, world) {
   buildVillage(scene, world);
   buildLandmarks(scene, world);
   const clouds = buildClouds(scene, world);
+  buildExtraClouds(scene);
+  buildHarbourCraft(scene);
+  const birds = buildBirds(scene);
   const front = buildFrontWall(scene);
   const plane = buildPlane(scene);
   const rings = buildRings(scene);
@@ -58,6 +63,7 @@ export function createScene3D(canvas, world) {
 
   function render(state, dt, snap) {
     syncFront(front, scene, state);
+    syncBirds(birds, state.time);
     syncPlane(plane, state.plane);
     syncRings(rings, state);
     syncBeacon(beacon, state);
@@ -74,14 +80,17 @@ export function createScene3D(canvas, world) {
 // --- Lights and sky ----------------------------------------------------------
 
 function buildLights(scene) {
-  // Total light near 1.0: the palette was authored as final display
-  // colours, so anything much stronger blows them out to pastel.
-  const sun = new THREE.DirectionalLight(0xffd9a6, 0.95);
+  // Dusk balance: a strong warm key sun against a cooler, dimmer sky fill,
+  // so slopes facing the sun glow amber and the shadow sides fall off to
+  // blue — contrast the daytime build never had. Total stays near 1.0: the
+  // palette was authored as final display colours, so anything much
+  // stronger blows them out to pastel.
+  const sun = new THREE.DirectionalLight(0xffa050, 1.18);
   sun.position.copy(SUN_DIR).multiplyScalar(4200);
   scene.add(sun);
-  const hemi = new THREE.HemisphereLight(0xbdd8f2, 0x77683f, 0.38);
+  const hemi = new THREE.HemisphereLight(0x8fa8cc, 0x5f4c33, 0.30);
   scene.add(hemi);
-  const fill = new THREE.DirectionalLight(0x9db8d9, 0.12);
+  const fill = new THREE.DirectionalLight(0x87a6cc, 0.09);
   fill.position.set(-1800, 1200, 2200);
   scene.add(fill);
 }
@@ -113,8 +122,9 @@ function buildSky(scene) {
         vec3 col = mix(hor, mid, smoothstep(0.0, 0.15, h));
         col = mix(col, top, smoothstep(0.13, 0.6, h));
         float s = max(dot(d, normalize(sunDir)), 0.0);
-        col += vec3(1.0, 0.72, 0.38) * pow(s, 14.0) * 0.33;
-        col += vec3(1.0, 0.9, 0.66) * smoothstep(0.99925, 0.99965, s) * 1.1;
+        col += vec3(1.0, 0.60, 0.28) * pow(s, 9.0) * 0.52;
+        col += vec3(1.0, 0.48, 0.20) * pow(s, 3.0) * (1.0 - smoothstep(0.0, 0.38, h)) * 0.20;
+        col += vec3(1.0, 0.9, 0.66) * smoothstep(0.99925, 0.99965, s) * 1.25;
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <encodings_fragment>
@@ -128,15 +138,15 @@ function buildSky(scene) {
   cv.width = cv.height = 128;
   const g = cv.getContext('2d');
   const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(255, 243, 196, 0.95)');
-  grad.addColorStop(0.25, 'rgba(255, 214, 130, 0.45)');
-  grad.addColorStop(1, 'rgba(255, 190, 92, 0)');
+  grad.addColorStop(0, 'rgba(255, 240, 200, 0.95)');
+  grad.addColorStop(0.25, 'rgba(255, 196, 110, 0.50)');
+  grad.addColorStop(1, 'rgba(255, 160, 70, 0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 128);
   const tex = new THREE.CanvasTexture(cv);
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
   spr.position.copy(SUN_DIR).multiplyScalar(8200);
-  spr.scale.set(2600, 2600, 1);
+  spr.scale.set(3400, 3400, 1);
   scene.add(spr);
 }
 
@@ -171,10 +181,10 @@ function buildWater(scene) {
   geo.rotateX(-Math.PI / 2);
   const mat = new THREE.MeshPhongMaterial({
     color: hexColor(PALETTE.sea),
-    specular: 0xd9a860,
-    shininess: 210,
+    specular: 0xffc37a,
+    shininess: 300,
     transparent: true,
-    opacity: 0.94,
+    opacity: 0.95,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = 0;
@@ -453,10 +463,10 @@ function buildClouds(scene, world) {
   // the way a lit material does when a puff turns its back to the sun.
   const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const mesh = new THREE.InstancedMesh(geo, mat, total);
-  const lit = new THREE.Color(0xffffff);
-  const shade = new THREE.Color(0xf3ead8);
-  const stormA = new THREE.Color(0x77828d);
-  const stormB = new THREE.Color(0x5b6673);
+  const lit = new THREE.Color(0xffe3c0);
+  const shade = new THREE.Color(0xdcbd9c);
+  const stormA = new THREE.Color(0x6b7482);
+  const stormB = new THREE.Color(0x4c5563);
   let i = 0;
   for (const c of world.clouds) {
     for (const p of c.puffs) {
@@ -466,6 +476,129 @@ function buildClouds(scene, world) {
   }
   scene.add(mesh);
   return mesh;
+}
+
+// --- Dusk dressing: high clouds, harbour craft, birds -------------------------
+// Purely presentational scatter, built here rather than in world.js so the
+// shared island data — and everything the flight model reads from it —
+// stays exactly as it was. None of this collides, scores or steers.
+
+function buildExtraClouds(scene) {
+  // A second, higher deck of fair-weather cloud the standing world never
+  // had, catching the last of the sun in warm tones.
+  const rng = makeRng(90210);
+  const clusters = [];
+  let total = 0;
+  for (let i = 0; i < 6; i++) {
+    const c = {
+      x: (rng() - 0.5) * 5200,
+      y: 400 + rng() * 200,
+      z: (rng() - 0.5) * 5200,
+      puffs: [],
+    };
+    const n = 4 + Math.floor(rng() * 3);
+    for (let k = 0; k < n; k++) {
+      c.puffs.push({ dx: (rng() - 0.5) * 260, dy: (rng() - 0.5) * 40, dz: (rng() - 0.5) * 150, r: 55 + rng() * 60 });
+    }
+    total += n;
+    clusters.push(c);
+  }
+  const geo = new THREE.IcosahedronGeometry(1, 0);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const mesh = new THREE.InstancedMesh(geo, mat, total);
+  const lit = new THREE.Color(0xffdfba);
+  const shade = new THREE.Color(0xd9b894);
+  let i = 0;
+  for (const c of clusters) {
+    for (const p of c.puffs) {
+      setInstance(mesh, i++, c.x + p.dx, c.y + p.dy, c.z + p.dz, p.r * 1.8, p.r * 0.55, p.r * 1.15, p.dx, 0, 0, rng() > 0.5 ? lit : shade);
+    }
+  }
+  scene.add(mesh);
+}
+
+function buildHarbourCraft(scene) {
+  // Fishing boats riding at anchor off the harbour, and the lateral marks
+  // of the channel running south out to sea.
+  const hullCols = [0x9a4436, 0x2e5f6e, 0xc7b299, 0x74584a];
+  const spots = [
+    { x: 330, z: 1400, rot: 0.4 },
+    { x: 545, z: 1425, rot: -0.7 },
+    { x: 620, z: 1345, rot: 1.9 },
+    { x: 240, z: 1470, rot: 2.6 },
+  ];
+  spots.forEach((s, i) => {
+    const grp = new THREE.Group();
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(11, 2.2, 4.4), new THREE.MeshLambertMaterial({ color: hullCols[i % hullCols.length], flatShading: true }));
+    hull.position.y = 0.7;
+    grp.add(hull);
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.1, 2.9), new THREE.MeshLambertMaterial({ color: 0xf2ead8, flatShading: true }));
+    cabin.position.set(-2.2, 2.8, 0);
+    grp.add(cabin);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 6.2, 6), new THREE.MeshLambertMaterial({ color: 0x6e5136 }));
+    mast.position.set(2.4, 4.6, 0);
+    grp.add(mast);
+    grp.position.set(s.x, 0, s.z);
+    grp.rotation.y = s.rot;
+    scene.add(grp);
+  });
+  const marks = [
+    { x: 400, z: 1520, col: 0xd8402a },
+    { x: 455, z: 1660, col: 0x2a9d4f },
+    { x: 405, z: 1800, col: 0xd8402a },
+    { x: 460, z: 1940, col: 0x2a9d4f },
+  ];
+  for (const b of marks) {
+    const grp = new THREE.Group();
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(1.3, 3.4, 7), new THREE.MeshLambertMaterial({ color: b.col, flatShading: true }));
+    cone.position.y = 1.4;
+    grp.add(cone);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffd9a0, emissive: 0xff9d3c, emissiveIntensity: 1.2 }));
+    tip.position.y = 3.6;
+    grp.add(tip);
+    grp.position.set(b.x, 0, b.z);
+    scene.add(grp);
+  }
+}
+
+function buildBirds(scene) {
+  // A loose flock of shorebirds wheeling over the bay — two-plane wings on
+  // a shared circle, posed from the clock alone so a frozen frame still
+  // catches them mid-wheel.
+  const mat = new THREE.MeshBasicMaterial({ color: 0x232a30 });
+  const flock = { center: { x: -150, y: 185, z: -420 }, birds: [] };
+  const grp = new THREE.Group();
+  for (let i = 0; i < 8; i++) {
+    const bird = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 1.15), mat);
+    bird.add(body);
+    const mkWing = (s) => {
+      const geo = new THREE.BoxGeometry(1.25, 0.05, 0.34);
+      geo.translate(s * 0.62, 0, 0);
+      const wing = new THREE.Mesh(geo, mat);
+      bird.add(wing);
+      return wing;
+    };
+    flock.birds.push({ grp: bird, wl: mkWing(-1), wr: mkWing(1), r: 95 + (i % 4) * 22, ph: i * 0.55, bob: i * 1.7 });
+    grp.add(bird);
+  }
+  scene.add(grp);
+  return flock;
+}
+
+function syncBirds(flock, t) {
+  for (const b of flock.birds) {
+    const a = t * 0.045 + b.ph;
+    b.grp.position.set(
+      flock.center.x + Math.cos(a) * b.r,
+      flock.center.y + Math.sin(t * 0.3 + b.bob) * 7,
+      flock.center.z + Math.sin(a) * b.r
+    );
+    b.grp.rotation.y = Math.PI + a;
+    const flap = Math.sin(t * 7 + b.bob * 2.1) * 0.55;
+    b.wl.rotation.z = flap;
+    b.wr.rotation.z = -flap;
+  }
 }
 
 // --- The storm front (medevac) -------------------------------------------------
@@ -490,8 +623,8 @@ function buildFrontWall(scene) {
   const rng = makeRng(4451);
   // Dark blue-greys, the near layer darkest; nothing as pale as the old
   // slab grey, so the bank reads as weather, not scenery cardboard.
-  const nearCols = [0x2c3641, 0x333f4b, 0x384654].map((c) => new THREE.Color(c));
-  const farCols = [0x414f5c, 0x485866, 0x3b4854].map((c) => new THREE.Color(c));
+  const nearCols = [0x29313f, 0x313947, 0x38424e].map((c) => new THREE.Color(c));
+  const farCols = [0x414856, 0x474f5e, 0x3b434f].map((c) => new THREE.Color(c));
   // A bank, not a wall: loose rows of modest puffs in two depth layers,
   // the mass kept low so the front sits on the horizon instead of filling
   // the sky. Local +X runs along the front, local +Z is its depth.
@@ -576,12 +709,37 @@ function buildPlane(scene) {
   const band2 = new THREE.Mesh(band2Geo, teal);
   band2.position.z = -2.6;
   grp.add(band2);
-  // Canopy.
+  // Canopy: tinted glass now, not bodywork — a dark smoked pane with a
+  // hard specular edge so the low sun draws a glint line across it.
   const canGeo = new THREE.SphereGeometry(0.62, 12, 10);
   canGeo.scale(1, 0.78, 2.1);
-  const canopy = new THREE.Mesh(canGeo, teal);
+  const canopy = new THREE.Mesh(canGeo, new THREE.MeshPhongMaterial({ color: 0x14242e, specular: 0xbfe0ff, shininess: 110 }));
   canopy.position.set(0, 0.52, -1.1);
   grp.add(canopy);
+  // Panel lines: two dark seams ringed around the tube, and a pair of
+  // exhaust stubs under the cowling — the small print that makes a model
+  // read as a machine instead of a toy.
+  const seamMat = new THREE.MeshLambertMaterial({ color: 0x454c52 });
+  const fusR = (z) => 0.52 + ((z + 3.8) / 7.6) * 0.40;
+  for (const z of [-1.5, 0.8]) {
+    const seamGeo = new THREE.CylinderGeometry(fusR(z - 0.05) + 0.012, fusR(z + 0.05) + 0.012, 0.09, 12);
+    seamGeo.rotateX(-Math.PI / 2);
+    const seam = new THREE.Mesh(seamGeo, seamMat);
+    seam.position.z = z;
+    grp.add(seam);
+  }
+  for (const s of [-1, 1]) {
+    const stubGeo = new THREE.CylinderGeometry(0.07, 0.09, 0.55, 6);
+    stubGeo.rotateX(Math.PI / 2.4);
+    const stub = new THREE.Mesh(stubGeo, seamMat);
+    stub.position.set(s * 0.52, -0.34, -2.9);
+    grp.add(stub);
+  }
+  // Antenna mast on the spine.
+  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.2), seamMat);
+  mast.position.set(0, 0.92, -0.1);
+  mast.rotation.x = -0.18;
+  grp.add(mast);
   // Main wing with a hint of dihedral, orange tips.
   for (const s of [-1, 1]) {
     const wing = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.16, 1.7), white);
@@ -604,6 +762,45 @@ function buildPlane(scene) {
   const finTip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, 1.37), orange);
   finTip.position.set(0, 1.75, 3.55);
   grp.add(finTip);
+  // Her registration, painted on both faces of the fin.
+  {
+    const cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 96;
+    const g = cv.getContext('2d');
+    g.clearRect(0, 0, 256, 96);
+    g.fillStyle = '#22303a';
+    g.font = '700 56px "Avenir Next", "Segoe UI", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(CAMPAIGN.reg, 128, 52);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.encoding = THREE.sRGBEncoding;
+    for (const s of [-1, 1]) {
+      const plate = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.3, 0.49),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+      );
+      plate.position.set(s * 0.078, 0.95, 3.55);
+      plate.rotation.y = s * Math.PI / 2;
+      grp.add(plate);
+    }
+  }
+  // Navigation lights: port red, starboard green, tail white, and the red
+  // anti-collision beacon on the spine. Unlit materials — a lamp should
+  // read as a lamp at dusk, not as paint.
+  const lampGeo = new THREE.SphereGeometry(0.13, 8, 6);
+  const portLamp = new THREE.Mesh(lampGeo, new THREE.MeshBasicMaterial({ color: 0xff2d1e }));
+  portLamp.position.set(-6.38, 0.14, -0.5);
+  grp.add(portLamp);
+  const stbdLamp = new THREE.Mesh(lampGeo, new THREE.MeshBasicMaterial({ color: 0x2bff62 }));
+  stbdLamp.position.set(6.38, 0.14, -0.5);
+  grp.add(stbdLamp);
+  const tailLamp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  tailLamp.position.set(0, 0.32, 4.12);
+  grp.add(tailLamp);
+  const beaconLamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3524 }));
+  beaconLamp.position.set(0, 0.98, 0.7);
+  grp.add(beaconLamp);
   // Gear: two mains and a tail wheel.
   for (const s of [-1, 1]) {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.85, 6), dark);
