@@ -46,14 +46,17 @@ export function drawTitle(ctx, state, w, h) {
   ctx.font = `900 84px ${FONT}`;
   ctx.shadowColor = 'rgba(8, 24, 44, 0.7)';
   ctx.shadowBlur = 18;
-  ctx.fillText('SKYHAUL', w / 2, 116);
+  ctx.fillText('SKYHAUL', w / 2, 106);
   ctx.shadowBlur = 0;
   ctx.font = `700 24px ${FONT}`;
   ctx.fillStyle = PALETTE.hudAmber;
-  ctx.fillText('I S L A N D   C O U R I E R', w / 2, 150);
+  ctx.fillText('I S L A N D   C O U R I E R', w / 2, 138);
+  ctx.font = `700 15px ${FONT}`;
+  ctx.fillStyle = 'rgba(168, 224, 255, 0.97)';
+  ctx.fillText('ISLAND COURIER CAMPAIGN · MEDEVAC G-LIMIT · STORM WINDOW', w / 2, 164);
   ctx.font = `500 16px ${FONT}`;
   ctx.fillStyle = 'rgba(238, 247, 255, 0.92)';
-  ctx.fillText('One little prop plane, one island, and everybody\'s parcels — Teluk Emas, golden hour.', w / 2, 178);
+  ctx.fillText('One little prop plane, one island, and everybody\'s parcels — Teluk Emas, golden hour.', w / 2, 186);
 
   const { top, rowH, x, w: rw } = TITLE_ROWS;
 

@@ -82,7 +82,8 @@ export function stageShot(state, name) {
     state.gPeak = 1.38;
     state.campaign = { cash: 4550, bestStars: { 0: 3, 1: 2, 2: 2, 3: 1 } };
     state.campaignScore = 9100;
-    state.banner = null;
+    state.camShot = { back: 11, up: 3.6, side: 2.6, look: 26 };
+    state.banner = { text: 'THE QUIET PASSENGER — MEDEVAC', sub: 'Fee $3,200 · patient aboard · keep her under 1.4 G', until: 12.5 };
   } else if (name === 'results') {
     startMission(state, 1);
     const p = state.plane;
